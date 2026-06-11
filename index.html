@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pull-Up Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0c0c0e;
+    --surface: #141416;
+    --surface2: #1c1c20;
+    --border: #2a2a30;
+    --text: #e8e6e0;
+    --muted: #6b6870;
+    --accent: #e8a020;
+    --accent2: #d63a2f;
+    --green: #3ab06a;
+    --blue: #5b8def;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body: 'Instrument Sans', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    padding: 0 0 80px;
+  }
+
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+  }
+
+  nav h1 { font-family: var(--font-display); font-size: 28px; letter-spacing: 1.5px; color: var(--accent); }
+
+  .sync-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .sync-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .sync-dot.ok { background: var(--green); }
+  .sync-dot.err { background: var(--accent2); }
+  .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .container { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+
+  .streak-bar {
+    display: flex; gap: 12px;
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    max-width: 860px; margin: 0 auto;
+    align-items: center; flex-wrap: wrap;
+  }
+
+  .stat-chip { display: flex; flex-direction: column; gap: 2px; }
+  .stat-chip .val { font-family: var(--font-display); font-size: 32px; line-height: 1; color: var(--accent); }
+  .stat-chip .val.green { color: var(--green); }
+  .stat-chip .lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .stat-divider { width: 1px; height: 36px; background: var(--border); margin: 0 4px; }
+
+  .week-dots {
+    display: flex; gap: 6px;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    max-width: 860px; margin: 0 auto;
+  }
+  .dot-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .dot { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface); }
+  .dot.trained-a { background: var(--accent); border-color: var(--accent); }
+  .dot.trained-b { background: var(--blue); border-color: var(--blue); }
+  .dot-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+
+  .section-label { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent2); margin-bottom: 12px; }
+
+  .stage-section { padding: 24px 0 0; }
+  .stage-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 28px; }
+  .stage-btn {
+    background: var(--surface); border: 1.5px solid var(--border); border-radius: 6px;
+    padding: 10px 8px; cursor: pointer; text-align: center; transition: all 0.15s;
+    color: var(--text); font-family: var(--font-body);
+  }
+  .stage-btn:hover { border-color: var(--accent); }
+  .stage-btn.active { border-color: var(--accent); background: #1f1a10; }
+  .stage-num { font-family: var(--font-display); font-size: 22px; color: var(--muted); line-height: 1; margin-bottom: 4px; }
+  .stage-btn.active .stage-num { color: var(--accent); }
+  .stage-name { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.3; color: var(--muted); }
+  .stage-btn.active .stage-name { color: var(--text); }
+
+  .day-toggle { display: flex; gap: 8px; margin-bottom: 28px; }
+  .day-tab {
+    flex: 1; padding: 12px; background: var(--surface);
+    border: 1.5px solid var(--border); border-radius: 6px;
+    cursor: pointer; text-align: center; transition: all 0.15s;
+    color: var(--text); font-family: var(--font-body);
+  }
+  .day-tab:hover { border-color: var(--accent); }
+  .day-tab.active { border-color: var(--accent); background: #1f1a10; }
+  .day-tab .tab-letter { font-family: var(--font-display); font-size: 28px; line-height: 1; color: var(--muted); }
+  .day-tab.active .tab-letter { color: var(--accent); }
+  .day-tab .tab-sub { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+
+  .exercises { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
+  .ex-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .ex-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .ex-title { font-size: 14px; font-weight: 600; }
+  .ex-target { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .ex-sets-row { display: flex; gap: 8px; padding: 12px 16px; align-items: center; flex-wrap: wrap; }
+  .set-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1.5px solid var(--border); background: var(--surface2);
+    color: var(--muted); font-family: var(--font-display); font-size: 18px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s; position: relative;
+  }
+  .set-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .set-btn.done { border-color: var(--green); background: #0d2418; color: var(--green); }
+  .set-btn.done::after {
+    content: '✓'; position: absolute; font-size: 10px; top: -2px; right: -2px;
+    background: var(--green); color: var(--bg); border-radius: 50%;
+    width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-body); font-weight: 700;
+  }
+  .set-label { font-size: 11px; color: var(--muted); margin-left: 4px; }
+
+  .activation-row { display: flex; gap: 8px; margin-bottom: 28px; }
+  .act-card {
+    flex: 1; background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: all 0.15s;
+  }
+  .act-card:hover { border-color: var(--accent); }
+  .act-card.done { border-color: var(--green); background: #0d2418; }
+  .act-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .act-detail { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .act-check { font-size: 20px; margin-bottom: 6px; }
+
+  .notes-area {
+    width: 100%; background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--font-body);
+    font-size: 13px; padding: 10px 12px; resize: none; min-height: 60px;
+    margin-bottom: 12px; transition: border-color 0.15s;
+  }
+  .notes-area:focus { outline: none; border-color: var(--accent); }
+  .notes-area::placeholder { color: var(--muted); }
+
+  .log-btn {
+    width: 100%; padding: 16px; background: var(--accent); color: var(--bg);
+    border: none; border-radius: 8px; font-family: var(--font-display);
+    font-size: 22px; letter-spacing: 1.5px; cursor: pointer; transition: all 0.15s;
+    margin-bottom: 36px;
+  }
+  .log-btn:hover { background: #f0b030; transform: translateY(-1px); }
+  .log-btn:active { transform: translateY(0); }
+  .log-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+
+  .history-section { padding-top: 8px; }
+  .history-title {
+    font-family: var(--font-display); font-size: 22px; letter-spacing: 1px;
+    margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .history-list { display: flex; flex-direction: column; gap: 8px; }
+  .history-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 6px; padding: 12px 16px;
+    display: flex; align-items: flex-start; gap: 14px;
+    animation: slideIn 0.2s ease;
+  }
+  .hist-date { min-width: 80px; }
+  .hist-date .d { font-family: var(--font-display); font-size: 20px; color: var(--accent); line-height: 1; }
+  .hist-date .t { font-size: 10px; color: var(--muted); font-weight: 500; letter-spacing: 0.06em; }
+  .hist-divider { width: 1px; background: var(--border); align-self: stretch; }
+  .hist-detail { flex: 1; }
+  .hist-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
+  .hist-tag {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 3px; color: var(--muted);
+  }
+  .hist-tag.day-a { border-color: var(--accent); color: var(--accent); }
+  .hist-tag.day-b { border-color: var(--blue); color: var(--blue); }
+  .hist-tag.stage { border-color: var(--green); color: var(--green); }
+  .hist-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+
+  .empty {
+    text-align: center; padding: 32px; color: var(--muted);
+    font-size: 13px; border: 1px dashed var(--border); border-radius: 8px;
+  }
+  .empty strong { display: block; font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; color: var(--border); margin-bottom: 6px; }
+
+  .loading-overlay {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; z-index: 999; transition: opacity 0.4s;
+  }
+  .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-text { font-family: var(--font-display); font-size: 20px; letter-spacing: 2px; color: var(--muted); }
+  .loading-bar { width: 160px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .loading-bar-inner { height: 100%; background: var(--accent); animation: loadbar 1.2s ease-in-out infinite; }
+  @keyframes loadbar { 0%{width:0;margin-left:0} 50%{width:100%;margin-left:0} 100%{width:0;margin-left:100%} }
+
+  @keyframes slideIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+  @media (max-width: 560px) {
+    .stage-grid { grid-template-columns: repeat(3, 1fr); }
+    .streak-bar, .week-dots { padding: 16px 20px; }
+    nav { padding: 16px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--accent)">PULL-UP LOG</div>
+  <div class="loading-bar"><div class="loading-bar-inner"></div></div>
+  <div class="loading-text" id="loadingText">SYNCING WITH AIRTABLE...</div>
+</div>
+
+<nav>
+  <h1>PULL-UP LOG</h1>
+  <div class="sync-status">
+    <div class="sync-dot" id="syncDot"></div>
+    <span id="syncLabel">—</span>
+  </div>
+</nav>
+
+<div class="streak-bar">
+  <div class="stat-chip"><div class="val" id="streakVal">0</div><div class="lbl">Day Streak</div></div>
+  <div class="stat-divider"></div>
+  <div class="stat-chip"><div class="val" id="totalVal">0</div><div class="lbl">Sessions</div></div>
+  <div class="stat-divider"></div>
+  <div class="stat-chip"><div class="val green" id="stageVal">1</div><div class="lbl">Current Stage</div></div>
+  <div class="stat-divider"></div>
+  <div class="stat-chip"><div class="val" id="lastVal">—</div><div class="lbl">Last Session</div></div>
+</div>
+
+<div class="week-dots" id="weekDots"></div>
+
+<div class="container">
+  <div class="stage-section">
+    <div class="section-label">Current Stage</div>
+    <div class="stage-grid" id="stageGrid">
+      <button class="stage-btn active" data-stage="1" onclick="setStage(1)"><div class="stage-num">1</div><div class="stage-name">Ring Rows</div></button>
+      <button class="stage-btn" data-stage="2" onclick="setStage(2)"><div class="stage-num">2</div><div class="stage-name">Thick Band Pulls</div></button>
+      <button class="stage-btn" data-stage="3" onclick="setStage(3)"><div class="stage-num">3</div><div class="stage-name">Thinner Band</div></button>
+      <button class="stage-btn" data-stage="4" onclick="setStage(4)"><div class="stage-num">4</div><div class="stage-name">Unassisted Neg</div></button>
+      <button class="stage-btn" data-stage="5" onclick="setStage(5)"><div class="stage-num">5</div><div class="stage-name">Full Pull-Up ✓</div></button>
+    </div>
+  </div>
+
+  <div class="section-label">Today's Session</div>
+  <div class="day-toggle">
+    <button class="day-tab active" id="tabA" onclick="setDay('A')">
+      <div class="tab-letter">A</div><div class="tab-sub">Band Pulls + Negatives</div>
+    </button>
+    <button class="day-tab" id="tabB" onclick="setDay('B')">
+      <div class="tab-letter">B</div><div class="tab-sub">Ring Rows + Chins</div>
+    </button>
+  </div>
+
+  <div class="section-label">Activation (tap when done)</div>
+  <div class="activation-row">
+    <div class="act-card" id="act1" onclick="toggleAct(1)">
+      <div class="act-check" id="act1icon">○</div>
+      <div class="act-name">Dead Hangs</div>
+      <div class="act-detail">2 × 20–30 sec</div>
+    </div>
+    <div class="act-card" id="act2" onclick="toggleAct(2)">
+      <div class="act-check" id="act2icon">○</div>
+      <div class="act-name">Scapular Pull-Ups</div>
+      <div class="act-detail">2 × 5 reps</div>
+    </div>
+  </div>
+
+  <div class="section-label">Exercises</div>
+  <div class="exercises" id="exercisesContainer"></div>
+
+  <div class="section-label">Session Notes (optional)</div>
+  <textarea class="notes-area" id="sessionNotes" placeholder="e.g. Felt stronger on negatives. Used green band."></textarea>
+
+  <button class="log-btn" id="logBtn" onclick="logSession()">LOG SESSION</button>
+
+  <div class="history-section">
+    <div class="history-title">HISTORY</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</div>
+
+<script>
+  // ─── CONFIG ───────────────────────────────────────────────────────────────
+  const AT_TOKEN = 'patij5jqH0iaquE10.c6c9db88b8a895ba7aec072ac7ec08959bbcf07474e194bbd8845f08bf01ca3e';
+  const AT_BASE  = 'appskyRmm9tzyMPwn';
+  const AT_TABLE = 'Sessions';
+  const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
+  const AT_HEADS = { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' };
+
+  // ─── STATE ────────────────────────────────────────────────────────────────
+  let logs = [];   // array of normalised log objects (sourced from Airtable)
+  let state = {
+    currentDay: 'A',
+    currentStage: 1,
+    sets: {},
+    activation: { 1: false, 2: false },
+  };
+
+  const EXERCISES = {
+    A: [
+      { key: 'bandPulls', name: 'Thick Band Pull-Ups', sets: 3, reps: '3–5 reps', note: 'Palms away. Full range. Pause at top.' },
+      { key: 'bandNeg',   name: 'Banded Negatives',   sets: 3, reps: '3 reps',   note: '4–6 sec descent. Dead hang at bottom.' },
+    ],
+    B: [
+      { key: 'ringRows',  name: 'Ring Inverted Rows',     sets: 3, reps: '6–10 reps', note: 'Chest to rings. Elbows back. Elevate feet when easy.' },
+      { key: 'bandChins', name: 'Band-Assisted Chin-Ups', sets: 2, reps: '3–5 reps',  note: 'Palms toward you. Lighter band than Day A.' },
+    ],
+  };
+
+  // ─── AIRTABLE API ─────────────────────────────────────────────────────────
+  async function atFetch(path='', opts={}) {
+    const res = await fetch(AT_URL + path, { headers: AT_HEADS, ...opts });
+    if (!res.ok) throw new Error(`Airtable ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+
+  // Fetch ALL records (handles Airtable pagination via offset)
+  async function fetchAllLogs() {
+    let records = [], offset = null;
+    do {
+      const params = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
+      if (offset) params.set('offset', offset);
+      const data = await atFetch('?' + params);
+      records = records.concat(data.records);
+      offset = data.offset || null;
+    } while (offset);
+
+    return records.map(r => ({
+      id: r.id,
+      timestamp: r.fields.Timestamp,
+      date: r.fields.Date,
+      day: r.fields.Day,
+      stage: r.fields.Stage,
+      exercises: JSON.parse(r.fields.Exercises || '[]'),
+      notes: r.fields.Notes || '',
+      activation: JSON.parse(r.fields.Activation || '{}'),
+    }));
+  }
+
+  async function createLog(log) {
+    const data = await atFetch('', {
+      method: 'POST',
+      body: JSON.stringify({
+        records: [{
+          fields: {
+            Timestamp: log.timestamp,
+            Date: log.date,
+            Day: log.day,
+            Stage: log.stage,
+            Exercises: JSON.stringify(log.exercises),
+            Notes: log.notes,
+            Activation: JSON.stringify(log.activation),
+          }
+        }]
+      })
+    });
+    return data.records[0].id;
+  }
+
+  // ─── SYNC STATUS UI ───────────────────────────────────────────────────────
+  function setSyncStatus(status, label) {
+    const dot = document.getElementById('syncDot');
+    const lbl = document.getElementById('syncLabel');
+    dot.className = 'sync-dot ' + status;
+    lbl.textContent = label;
+  }
+
+  // ─── INIT ─────────────────────────────────────────────────────────────────
+  async function load() {
+    setSyncStatus('syncing', 'Syncing...');
+    try {
+      logs = await fetchAllLogs();
+      // derive suggested day + stage from last log
+      if (logs.length > 0) {
+        const last = logs[0];
+        state.currentStage = last.stage;
+        state.currentDay = last.day === 'A' ? 'B' : 'A';
+      }
+      setSyncStatus('ok', 'Airtable ✓');
+      // cache locally as fallback
+      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
+    } catch (e) {
+      console.warn('Airtable fetch failed, using local cache:', e);
+      setSyncStatus('err', 'Offline (cached)');
+      const cached = localStorage.getItem('pullup_logs_cache');
+      if (cached) logs = JSON.parse(cached);
+      if (logs.length > 0) {
+        state.currentStage = logs[0].stage;
+        state.currentDay = logs[0].day === 'A' ? 'B' : 'A';
+      }
+    }
+
+    renderAll();
+    renderHistory();
+    renderStats();
+    renderWeekDots();
+    updateTodayLabel();
+
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.classList.add('hidden');
+    setTimeout(() => overlay.remove(), 400);
+  }
+
+  // ─── LOG SESSION ──────────────────────────────────────────────────────────
+  async function logSession() {
+    const btn = document.getElementById('logBtn');
+    btn.disabled = true;
+    btn.textContent = 'SAVING...';
+    setSyncStatus('syncing', 'Saving...');
+
+    const exs = EXERCISES[state.currentDay];
+    const exercises = exs.map(ex => ({
+      name: ex.name,
+      done: (state.sets[ex.key] || []).filter(Boolean).length,
+      total: ex.sets,
+    }));
+
+    const log = {
+      timestamp: new Date().toISOString(),
+      date: dateStr(new Date()),
+      day: state.currentDay,
+      stage: state.currentStage,
+      exercises,
+      notes: document.getElementById('sessionNotes').value.trim(),
+      activation: { ...state.activation },
+    };
+
+    try {
+      log.id = await createLog(log);
+      logs.unshift(log);
+      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
+      setSyncStatus('ok', 'Saved ✓');
+    } catch (e) {
+      console.error('Failed to save to Airtable:', e);
+      // still add to local cache so we don't lose the session
+      logs.unshift(log);
+      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
+      setSyncStatus('err', 'Saved locally');
+      alert('Airtable save failed — session kept locally.\n\n' + e.message);
+    }
+
+    // reset
+    state.sets = {};
+    state.activation = { 1: false, 2: false };
+    document.getElementById('sessionNotes').value = '';
+    state.currentDay = state.currentDay === 'A' ? 'B' : 'A';
+
+    renderAll();
+    renderHistory();
+    renderStats();
+    renderWeekDots();
+
+    btn.disabled = false;
+    btn.textContent = '✓ LOGGED!';
+    btn.style.background = 'var(--green)';
+    setTimeout(() => {
+      btn.textContent = 'LOG SESSION';
+      btn.style.background = '';
+    }, 2500);
+  }
+
+  // ─── RENDER ───────────────────────────────────────────────────────────────
+  function renderAll() {
+    document.querySelectorAll('.stage-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.stage) === state.currentStage);
+    });
+    document.getElementById('tabA').classList.toggle('active', state.currentDay === 'A');
+    document.getElementById('tabB').classList.toggle('active', state.currentDay === 'B');
+    [1,2].forEach(i => {
+      document.getElementById('act'+i).classList.toggle('done', state.activation[i]);
+      document.getElementById('act'+i+'icon').textContent = state.activation[i] ? '✓' : '○';
+    });
+    renderExercises();
+  }
+
+  function renderExercises() {
+    const container = document.getElementById('exercisesContainer');
+    container.innerHTML = '';
+    EXERCISES[state.currentDay].forEach(ex => {
+      if (!state.sets[ex.key]) state.sets[ex.key] = Array(ex.sets).fill(false);
+      const done = state.sets[ex.key].filter(Boolean).length;
+      const card = document.createElement('div');
+      card.className = 'ex-card';
+      card.innerHTML = `
+        <div class="ex-header">
+          <div>
+            <div class="ex-title">${ex.name}</div>
+            <div class="ex-target">${ex.sets} sets × ${ex.reps} &nbsp;·&nbsp; ${ex.note}</div>
+          </div>
+          <div style="font-family:var(--font-display);font-size:20px;color:${done===ex.sets?'var(--green)':'var(--muted)'}">${done}/${ex.sets}</div>
+        </div>
+        <div class="ex-sets-row">
+          ${state.sets[ex.key].map((d,i)=>`<button class="set-btn ${d?'done':''}" onclick="toggleSet('${ex.key}',${i})">${i+1}</button>`).join('')}
+          <span class="set-label">tap each set when complete</span>
+        </div>`;
+      container.appendChild(card);
+    });
+  }
+
+  function renderStats() {
+    document.getElementById('totalVal').textContent = logs.length;
+    document.getElementById('stageVal').textContent = state.currentStage;
+
+    let streak = 0;
+    const today = dateStr(new Date());
+    const yesterday = dateStr(new Date(Date.now() - 86400000));
+    const logDates = [...new Set(logs.map(l => l.date))];
+    if (logDates.includes(today) || logDates.includes(yesterday)) {
+      let check = logDates.includes(today) ? new Date() : new Date(Date.now()-86400000);
+      while (logDates.includes(dateStr(check))) { streak++; check = new Date(check-86400000); }
+    }
+    document.getElementById('streakVal').textContent = streak;
+
+    if (logs.length > 0) {
+      const d = new Date(logs[0].timestamp);
+      document.getElementById('lastVal').textContent = d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+    }
+  }
+
+  function renderWeekDots() {
+    const container = document.getElementById('weekDots');
+    container.innerHTML = '';
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today); d.setDate(today.getDate()-i);
+      const ds = dateStr(d);
+      const dayLog = logs.find(l => l.date === ds);
+      const wrap = document.createElement('div'); wrap.className = 'dot-wrap';
+      const dot = document.createElement('div'); dot.className = 'dot';
+      if (dayLog) dot.classList.add('trained-'+dayLog.day.toLowerCase());
+      dot.title = dayLog ? `Day ${dayLog.day} - Stage ${dayLog.stage}` : 'Rest';
+      const lbl = document.createElement('div'); lbl.className = 'dot-lbl';
+      lbl.textContent = i===0 ? 'Today' : days[d.getDay()];
+      wrap.appendChild(dot); wrap.appendChild(lbl); container.appendChild(wrap);
+    }
+  }
+
+  function renderHistory() {
+    const list = document.getElementById('historyList');
+    if (logs.length === 0) {
+      list.innerHTML = '<div class="empty"><strong>NO SESSIONS YET</strong>Log your first session above.</div>';
+      return;
+    }
+    const stageNames = ['','Ring Rows','Thick Band','Thinner Band','Unassisted Neg','Full Pull-Up ✓'];
+    list.innerHTML = logs.slice(0,30).map(log => {
+      const d = new Date(log.timestamp);
+      return `
+        <div class="history-item">
+          <div class="hist-date">
+            <div class="d">${d.getDate()} ${d.toLocaleDateString('en-AU',{month:'short'})}</div>
+            <div class="t">${d.toLocaleDateString('en-AU',{weekday:'short'})} · ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
+          <div class="hist-divider"></div>
+          <div class="hist-detail">
+            <div class="hist-row">
+              <span class="hist-tag day-${log.day.toLowerCase()}">Day ${log.day}</span>
+              <span class="hist-tag stage">Stage ${log.stage} · ${stageNames[log.stage]||'?'}</span>
+            </div>
+            <div class="hist-row" style="margin-top:6px">
+              ${log.exercises.map(e=>`<span class="hist-tag">${e.name}: ${e.done}/${e.total} sets</span>`).join('')}
+            </div>
+            ${log.notes ? `<div class="hist-note">"${log.notes}"</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function updateTodayLabel() {}
+
+  // ─── INTERACTIONS ─────────────────────────────────────────────────────────
+  function setStage(s) {
+    state.currentStage = s;
+    renderAll(); renderStats();
+  }
+  function setDay(d) {
+    state.currentDay = d; state.sets = {}; renderAll();
+  }
+  function toggleAct(i) {
+    state.activation[i] = !state.activation[i]; renderAll();
+  }
+  function toggleSet(key, idx) {
+    state.sets[key][idx] = !state.sets[key][idx]; renderExercises();
+  }
+  function dateStr(d) { return d.toISOString().split('T')[0]; }
+
+  load();
+</script>
+</body>
+</html>
