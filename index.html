@@ -384,7 +384,7 @@
 
   const NOTE_FIELDS = [
     { key: 'Difficulty', label: 'Difficulty', values: ['Easy', 'Moderate', 'Hard', 'Max Effort'] },
-    { key: 'Band', label: 'Band', values: ['None', 'Red', 'Black', 'Purple', 'Green', 'Other'] },
+    { key: 'Band', label: 'Band', values: ['Purple', 'Orange', 'Red'], multi: true },
     { key: 'Pain', label: 'Pain', values: ['None', 'Shoulder', 'Elbow', 'Wrist', 'Other'] },
     { key: 'Quality', label: 'Quality', values: ['Clean reps', 'Partial reps', 'Failed reps', 'Strong negatives'] },
   ];
@@ -692,9 +692,9 @@
           ${field.values.map(value => `
             <button
               type="button"
-              class="note-chip ${state.notes[field.key] === value ? 'active' : ''}"
+              class="note-chip ${noteFieldHasValue(field, value) ? 'active' : ''}"
               onclick="setNoteField('${field.key}', '${escapeJs(value)}')"
-              aria-pressed="${state.notes[field.key] === value}"
+              aria-pressed="${noteFieldHasValue(field, value)}"
             >${escapeHtml(value)}</button>
           `).join('')}
         </div>
@@ -800,7 +800,15 @@
   }
 
   function setNoteField(key, value) {
-    state.notes[key] = state.notes[key] === value ? '' : value;
+    const field = NOTE_FIELDS.find(item => item.key === key);
+    if (field?.multi) {
+      const selected = Array.isArray(state.notes[key]) ? [...state.notes[key]] : [];
+      state.notes[key] = selected.includes(value)
+        ? selected.filter(item => item !== value)
+        : [...selected, value];
+    } else {
+      state.notes[key] = state.notes[key] === value ? '' : value;
+    }
     renderNoteControls();
   }
 
@@ -897,7 +905,7 @@
   function buildNoteText() {
     const lines = [];
     NOTE_FIELDS.forEach(field => {
-      const value = state.notes[field.key];
+      const value = noteFieldTextValue(field);
       if (value) lines.push(`${field.key}: ${value}`);
     });
 
@@ -937,7 +945,16 @@
       const value = match[2].trim();
       const field = NOTE_FIELDS.find(item => item.key === label);
 
-      if (field && field.values.includes(value)) {
+      if (field?.multi) {
+        const values = value.split(/\s*\+\s*/).filter(item => field.values.includes(item));
+        if (values.length) {
+          fields[field.key] = values;
+          foundStructuredField = true;
+          return;
+        }
+      }
+
+      if (field && !field.multi && field.values.includes(value)) {
         fields[field.key] = value;
         foundStructuredField = true;
         return;
@@ -962,10 +979,28 @@
   function historyNoteTags(fields) {
     const tags = [];
     if (fields.Difficulty) tags.push(fields.Difficulty);
-    if (fields.Band) tags.push(fields.Band === 'None' ? 'No band' : `${fields.Band} band`);
+    if (fields.Band) {
+      const bands = Array.isArray(fields.Band) ? fields.Band : [fields.Band];
+      if (bands.length) tags.push(`${bands.join(' + ')} band`);
+    }
     if (fields.Pain) tags.push(fields.Pain === 'None' ? 'No pain' : `${fields.Pain} pain`);
     if (fields.Quality) tags.push(fields.Quality);
     return tags;
+  }
+
+  function noteFieldHasValue(field, value) {
+    if (field.multi) {
+      return Array.isArray(state.notes[field.key]) && state.notes[field.key].includes(value);
+    }
+    return state.notes[field.key] === value;
+  }
+
+  function noteFieldTextValue(field) {
+    const value = state.notes[field.key];
+    if (field.multi) {
+      return Array.isArray(value) ? value.join(' + ') : '';
+    }
+    return value || '';
   }
 
   function escapeHtml(value) {
