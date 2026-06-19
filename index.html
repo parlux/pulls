@@ -206,6 +206,23 @@
   .hist-tag.day-b { border-color: var(--blue); color: var(--blue); }
   .hist-tag.stage { border-color: var(--green); color: var(--green); }
   .hist-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+  .hist-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .hist-action {
+    border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
+    border-radius: 4px; padding: 5px 9px; cursor: pointer; font: inherit;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .hist-action:hover { border-color: var(--accent); color: var(--accent); }
+  .hist-action.delete:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .edit-row { display: none; align-items: center; justify-content: center; gap: 10px; margin-top: -24px; margin-bottom: 36px; }
+  .edit-row.active { display: flex; }
+  .edit-context { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .cancel-edit {
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    border-radius: 4px; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 11px;
+  }
+  .cancel-edit:hover { border-color: var(--accent); color: var(--accent); }
 
   .empty {
     text-align: center; padding: 32px; color: var(--muted);
@@ -304,7 +321,11 @@
   <div class="section-label">Session Notes (optional)</div>
   <textarea class="notes-area" id="sessionNotes" placeholder="e.g. Felt stronger on negatives. Used green band."></textarea>
 
-  <button class="log-btn" id="logBtn" onclick="logSession()">LOG SESSION</button>
+  <button class="log-btn" id="logBtn" onclick="submitSession()">LOG SESSION</button>
+  <div class="edit-row" id="editRow">
+    <span class="edit-context" id="editContext">Editing latest log</span>
+    <button class="cancel-edit" onclick="cancelEdit()">Cancel edit</button>
+  </div>
 
   <div class="history-section">
     <div class="history-title">HISTORY</div>
@@ -322,6 +343,7 @@
 
   // ─── STATE ────────────────────────────────────────────────────────────────
   let logs = [];   // array of normalised log objects (sourced from Airtable)
+  let editingLogId = null;
   let state = {
     currentDay: 'A',
     currentStage: 1,
@@ -344,6 +366,7 @@
   async function atFetch(path='', opts={}) {
     const res = await fetch(AT_URL + path, { headers: AT_HEADS, ...opts });
     if (!res.ok) throw new Error(`Airtable ${res.status}: ${await res.text()}`);
+    if (res.status === 204) return null;
     return res.json();
   }
 
@@ -388,6 +411,34 @@
       })
     });
     return data.records[0].id;
+  }
+
+  async function updateLog(log) {
+    await atFetch('', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        records: [{
+          id: log.id,
+          fields: airtableFields(log),
+        }]
+      })
+    });
+  }
+
+  async function deleteLog(id) {
+    await atFetch(`/${id}`, { method: 'DELETE' });
+  }
+
+  function airtableFields(log) {
+    return {
+      Timestamp: log.timestamp,
+      Date: log.date,
+      Day: log.day,
+      Stage: log.stage,
+      Exercises: JSON.stringify(log.exercises),
+      Notes: log.notes,
+      Activation: JSON.stringify(log.activation),
+    };
   }
 
   // ─── SYNC STATUS UI ───────────────────────────────────────────────────────
@@ -435,28 +486,46 @@
   }
 
   // ─── LOG SESSION ──────────────────────────────────────────────────────────
-  async function logSession() {
-    const btn = document.getElementById('logBtn');
-    btn.disabled = true;
-    btn.textContent = 'SAVING...';
-    setSyncStatus('syncing', 'Saving...');
+  async function submitSession() {
+    if (editingLogId) {
+      await saveEditedSession();
+    } else {
+      await logSession();
+    }
+  }
 
+  function buildSessionLog(existingLog=null) {
     const exs = EXERCISES[state.currentDay];
-    const exercises = exs.map(ex => ({
-      name: ex.name,
-      done: (state.sets[ex.key] || []).filter(Boolean).length,
-      total: ex.sets,
-    }));
+    const exercises = exs.map(ex => {
+      const setState = normaliseSetState(ex.key, ex.sets);
+      return {
+        key: ex.key,
+        name: ex.name,
+        done: setState.filter(Boolean).length,
+        total: ex.sets,
+        sets: setState,
+      };
+    });
 
-    const log = {
-      timestamp: new Date().toISOString(),
-      date: localDateKey(new Date()),
+    return {
+      id: existingLog?.id,
+      timestamp: existingLog?.timestamp || new Date().toISOString(),
+      date: existingLog?.date || localDateKey(new Date()),
       day: state.currentDay,
       stage: state.currentStage,
       exercises,
       notes: document.getElementById('sessionNotes').value.trim(),
       activation: { ...state.activation },
     };
+  }
+
+  async function logSession() {
+    const btn = document.getElementById('logBtn');
+    btn.disabled = true;
+    btn.textContent = 'SAVING...';
+    setSyncStatus('syncing', 'Saving...');
+
+    const log = { ...buildSessionLog(), localId: makeLocalId() };
 
     try {
       log.id = await createLog(log);
@@ -472,11 +541,7 @@
       alert('Airtable save failed — session kept locally.\n\n' + e.message);
     }
 
-    // reset
-    state.sets = {};
-    state.activation = { 1: false, 2: false };
-    document.getElementById('sessionNotes').value = '';
-    state.currentDay = state.currentDay === 'A' ? 'B' : 'A';
+    resetFormAfterSubmit(true);
 
     renderAll();
     renderHistory();
@@ -485,6 +550,64 @@
 
     btn.disabled = false;
     btn.textContent = '✓ LOGGED!';
+    btn.style.background = 'var(--green)';
+    setTimeout(() => {
+      btn.textContent = 'LOG SESSION';
+      btn.style.background = '';
+    }, 2500);
+  }
+
+  async function saveEditedSession() {
+    const btn = document.getElementById('logBtn');
+    const index = logs.findIndex(log => getLogKey(log) === editingLogId);
+    if (index === -1) {
+      cancelEdit();
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'SAVING CHANGES...';
+    setSyncStatus('syncing', 'Saving changes...');
+
+    const previous = logs[index];
+    const updated = { ...buildSessionLog(previous), localId: previous.localId };
+    logs[index] = updated;
+    localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
+
+    try {
+      if (updated.id) {
+        await updateLog(updated);
+      }
+      setSyncStatus('ok', 'Changes saved');
+      finishEditMode('CHANGES SAVED');
+    } catch (e) {
+      console.error('Failed to update Airtable:', e);
+      setSyncStatus('err', 'Offline: changes saved locally');
+      alert('Airtable update failed — changes saved locally.\n\n' + e.message);
+      finishEditMode('CHANGES SAVED LOCALLY');
+    }
+
+    renderAll();
+    renderHistory();
+    renderStats();
+    renderWeekDots();
+
+    btn.disabled = false;
+  }
+
+  function resetFormAfterSubmit(advanceDay=false) {
+    state.sets = {};
+    state.activation = { 1: false, 2: false };
+    document.getElementById('sessionNotes').value = '';
+    if (advanceDay) state.currentDay = state.currentDay === 'A' ? 'B' : 'A';
+  }
+
+  function finishEditMode(message) {
+    const btn = document.getElementById('logBtn');
+    editingLogId = null;
+    resetFormAfterSubmit(false);
+    renderEditState();
+    btn.textContent = `✓ ${message}!`;
     btn.style.background = 'var(--green)';
     setTimeout(() => {
       btn.textContent = 'LOG SESSION';
@@ -504,6 +627,7 @@
       document.getElementById('act'+i+'icon').textContent = state.activation[i] ? '✓' : '○';
     });
     renderExercises();
+    renderEditState();
   }
 
   function renderExercises() {
@@ -547,6 +671,8 @@
     if (logs.length > 0) {
       const d = new Date(logs[0].timestamp);
       document.getElementById('lastVal').textContent = d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+    } else {
+      document.getElementById('lastVal').textContent = '—';
     }
   }
 
@@ -576,10 +702,10 @@
       return;
     }
     const stageNames = ['','Ring Rows','Thick Band','Thinner Band','Unassisted Neg','Full Pull-Up ✓'];
-    list.innerHTML = logs.slice(0,30).map(log => {
+    list.innerHTML = logs.slice(0,30).map((log, index) => {
       const d = new Date(log.timestamp);
       return `
-        <div class="history-item">
+        <div class="history-item ${editingLogId === getLogKey(log) ? 'editing' : ''}">
           <div class="hist-date">
             <div class="d">${d.getDate()} ${d.toLocaleDateString('en-AU',{month:'short'})}</div>
             <div class="t">${d.toLocaleDateString('en-AU',{weekday:'short'})} · ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})}</div>
@@ -594,6 +720,11 @@
               ${log.exercises.map(e=>`<span class="hist-tag">${e.name}: ${e.done}/${e.total} sets</span>`).join('')}
             </div>
             ${log.notes ? `<div class="hist-note">"${log.notes}"</div>` : ''}
+            ${index === 0 ? `
+              <div class="hist-actions">
+                <button class="hist-action" onclick="editLatestLog()">Edit</button>
+                <button class="hist-action delete" onclick="deleteLatestLog()">Delete</button>
+              </div>` : ''}
           </div>
         </div>`;
     }).join('');
@@ -614,6 +745,102 @@
   }
   function toggleSet(key, idx) {
     state.sets[key][idx] = !state.sets[key][idx]; renderExercises();
+  }
+  function editLatestLog() {
+    if (logs.length === 0) return;
+    const log = logs[0];
+    editingLogId = getLogKey(log);
+    state.currentDay = log.day || 'A';
+    state.currentStage = log.stage || 1;
+    state.activation = { 1: false, 2: false, ...(log.activation || {}) };
+    state.sets = setsFromLog(log);
+    document.getElementById('sessionNotes').value = log.notes || '';
+    renderAll();
+    renderHistory();
+    document.getElementById('logBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function cancelEdit() {
+    if (!editingLogId) return;
+    editingLogId = null;
+    resetFormAfterSubmit(false);
+    setSyncStatus('ok', 'Edit cancelled');
+    renderAll();
+    renderHistory();
+  }
+
+  async function deleteLatestLog() {
+    if (logs.length === 0) return;
+    const log = logs[0];
+    if (!confirm('Delete the most recent log?')) return;
+
+    setSyncStatus('syncing', 'Deleting...');
+    try {
+      if (log.id) {
+        await deleteLog(log.id);
+      }
+      logs.shift();
+      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
+      if (editingLogId === getLogKey(log)) {
+        editingLogId = null;
+        resetFormAfterSubmit(false);
+      }
+      setSyncStatus('ok', 'Deleted');
+      renderAll();
+      renderHistory();
+      renderStats();
+      renderWeekDots();
+    } catch (e) {
+      console.error('Failed to delete from Airtable:', e);
+      setSyncStatus('err', 'Delete failed');
+      alert('Delete failed — log was kept.\n\n' + e.message);
+    }
+  }
+
+  function renderEditState() {
+    const isEditing = Boolean(editingLogId);
+    const row = document.getElementById('editRow');
+    const btn = document.getElementById('logBtn');
+    row.classList.toggle('active', isEditing);
+    if (!btn.disabled) {
+      btn.textContent = isEditing ? 'SAVE CHANGES' : 'LOG SESSION';
+    }
+    if (isEditing) {
+      const log = logs.find(item => getLogKey(item) === editingLogId);
+      if (log) {
+        const d = new Date(log.timestamp);
+        document.getElementById('editContext').textContent = `Editing ${d.toLocaleDateString('en-AU', { day:'numeric', month:'short' })} log`;
+      }
+    }
+  }
+
+  function normaliseSetState(key, total) {
+    const existing = Array.isArray(state.sets[key]) ? state.sets[key] : [];
+    return Array.from({ length: total }, (_, i) => Boolean(existing[i]));
+  }
+
+  function setsFromLog(log) {
+    const next = {};
+    const exercises = EXERCISES[log.day] || [];
+    exercises.forEach(ex => {
+      const loggedExercise = (log.exercises || []).find(item => item.key === ex.key || item.name === ex.name);
+      if (loggedExercise && Array.isArray(loggedExercise.sets)) {
+        next[ex.key] = Array.from({ length: ex.sets }, (_, i) => Boolean(loggedExercise.sets[i]));
+      } else {
+        const done = Math.min(loggedExercise?.done || 0, ex.sets);
+        next[ex.key] = Array.from({ length: ex.sets }, (_, i) => i < done);
+      }
+    });
+    return next;
+  }
+
+  function getLogKey(log) {
+    return log.id || log.localId || log.timestamp;
+  }
+
+  function makeLocalId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
   function localDateKey(d) {
     const year = d.getFullYear();
