@@ -168,6 +168,21 @@
   .notes-area:focus { outline: none; border-color: var(--accent); }
   .notes-area::placeholder { color: var(--muted); }
 
+  .note-structured { display: grid; gap: 12px; margin-bottom: 12px; }
+  .note-group { display: grid; grid-template-columns: 82px 1fr; gap: 10px; align-items: start; }
+  .note-group-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); padding-top: 7px;
+  }
+  .note-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .note-chip {
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    border-radius: 999px; padding: 6px 10px; cursor: pointer; font: inherit;
+    font-size: 11px; font-weight: 700; line-height: 1; transition: all 0.12s;
+  }
+  .note-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .note-chip.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
+
   .log-btn {
     width: 100%; padding: 16px; background: var(--accent); color: var(--bg);
     border: none; border-radius: 8px; font-family: var(--font-display);
@@ -205,6 +220,7 @@
   .hist-tag.day-a { border-color: var(--accent); color: var(--accent); }
   .hist-tag.day-b { border-color: var(--blue); color: var(--blue); }
   .hist-tag.stage { border-color: var(--green); color: var(--green); }
+  .hist-tag.note { border-color: var(--border); color: var(--text); }
   .hist-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
   .hist-actions { display: flex; gap: 8px; margin-top: 10px; }
   .hist-action {
@@ -247,6 +263,8 @@
     .stage-grid { grid-template-columns: repeat(3, 1fr); }
     .streak-bar, .week-dots { padding: 16px 20px; }
     nav { padding: 16px 20px; }
+    .note-group { grid-template-columns: 1fr; gap: 6px; }
+    .note-group-label { padding-top: 0; }
   }
 </style>
 </head>
@@ -319,7 +337,8 @@
   <div class="exercises" id="exercisesContainer"></div>
 
   <div class="section-label">Session Notes (optional)</div>
-  <textarea class="notes-area" id="sessionNotes" placeholder="e.g. Felt stronger on negatives. Used green band."></textarea>
+  <div class="note-structured" id="noteStructured"></div>
+  <textarea class="notes-area" id="sessionNotes" placeholder="Anything unusual? Band changes, pain, failures, grip."></textarea>
 
   <button class="log-btn" id="logBtn" onclick="submitSession()">LOG SESSION</button>
   <div class="edit-row" id="editRow">
@@ -349,6 +368,7 @@
     currentStage: 1,
     sets: {},
     activation: { 1: false, 2: false },
+    notes: {},
   };
 
   const EXERCISES = {
@@ -361,6 +381,13 @@
       { key: 'bandChins', name: 'Band-Assisted Chin-Ups', sets: 2, reps: '3–5 reps',  note: 'Palms toward you. Lighter band than Day A.' },
     ],
   };
+
+  const NOTE_FIELDS = [
+    { key: 'Difficulty', label: 'Difficulty', values: ['Easy', 'Moderate', 'Hard', 'Max Effort'] },
+    { key: 'Band', label: 'Band', values: ['None', 'Red', 'Black', 'Purple', 'Green', 'Other'] },
+    { key: 'Pain', label: 'Pain', values: ['None', 'Shoulder', 'Elbow', 'Wrist', 'Other'] },
+    { key: 'Quality', label: 'Quality', values: ['Clean reps', 'Partial reps', 'Failed reps', 'Strong negatives'] },
+  ];
 
   // ─── AIRTABLE API ─────────────────────────────────────────────────────────
   async function atFetch(path='', opts={}) {
@@ -514,7 +541,7 @@
       day: state.currentDay,
       stage: state.currentStage,
       exercises,
-      notes: document.getElementById('sessionNotes').value.trim(),
+      notes: buildNoteText(),
       activation: { ...state.activation },
     };
   }
@@ -598,6 +625,7 @@
   function resetFormAfterSubmit(advanceDay=false) {
     state.sets = {};
     state.activation = { 1: false, 2: false };
+    state.notes = {};
     document.getElementById('sessionNotes').value = '';
     if (advanceDay) state.currentDay = state.currentDay === 'A' ? 'B' : 'A';
   }
@@ -627,6 +655,7 @@
       document.getElementById('act'+i+'icon').textContent = state.activation[i] ? '✓' : '○';
     });
     renderExercises();
+    renderNoteControls();
     renderEditState();
   }
 
@@ -652,6 +681,25 @@
         </div>`;
       container.appendChild(card);
     });
+  }
+
+  function renderNoteControls() {
+    const container = document.getElementById('noteStructured');
+    container.innerHTML = NOTE_FIELDS.map(field => `
+      <div class="note-group">
+        <div class="note-group-label">${field.label}</div>
+        <div class="note-chips">
+          ${field.values.map(value => `
+            <button
+              type="button"
+              class="note-chip ${state.notes[field.key] === value ? 'active' : ''}"
+              onclick="setNoteField('${field.key}', '${escapeJs(value)}')"
+              aria-pressed="${state.notes[field.key] === value}"
+            >${escapeHtml(value)}</button>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
   }
 
   function renderStats() {
@@ -704,6 +752,9 @@
     const stageNames = ['','Ring Rows','Thick Band','Thinner Band','Unassisted Neg','Full Pull-Up ✓'];
     list.innerHTML = logs.slice(0,30).map((log, index) => {
       const d = new Date(log.timestamp);
+      const parsedNotes = parseStructuredNotes(log.notes || '');
+      const noteTags = historyNoteTags(parsedNotes.fields);
+      const rawNote = parsedNotes.manualText || (Object.keys(parsedNotes.fields).length ? '' : log.notes);
       return `
         <div class="history-item ${editingLogId === getLogKey(log) ? 'editing' : ''}">
           <div class="hist-date">
@@ -717,9 +768,10 @@
               <span class="hist-tag stage">Stage ${log.stage} · ${stageNames[log.stage]||'?'}</span>
             </div>
             <div class="hist-row" style="margin-top:6px">
-              ${log.exercises.map(e=>`<span class="hist-tag">${e.name}: ${e.done}/${e.total} sets</span>`).join('')}
+              ${log.exercises.map(e=>`<span class="hist-tag">${escapeHtml(e.name)}: ${e.done}/${e.total} sets</span>`).join('')}
             </div>
-            ${log.notes ? `<div class="hist-note">"${log.notes}"</div>` : ''}
+            ${noteTags.length ? `<div class="hist-row" style="margin-top:6px">${noteTags.map(tag=>`<span class="hist-tag note">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+            ${rawNote ? `<div class="hist-note">"${escapeHtml(rawNote)}"</div>` : ''}
             ${index === 0 ? `
               <div class="hist-actions">
                 <button class="hist-action" onclick="editLatestLog()">Edit</button>
@@ -746,6 +798,12 @@
   function toggleSet(key, idx) {
     state.sets[key][idx] = !state.sets[key][idx]; renderExercises();
   }
+
+  function setNoteField(key, value) {
+    state.notes[key] = state.notes[key] === value ? '' : value;
+    renderNoteControls();
+  }
+
   function editLatestLog() {
     if (logs.length === 0) return;
     const log = logs[0];
@@ -754,7 +812,9 @@
     state.currentStage = log.stage || 1;
     state.activation = { 1: false, 2: false, ...(log.activation || {}) };
     state.sets = setsFromLog(log);
-    document.getElementById('sessionNotes').value = log.notes || '';
+    const parsedNotes = parseStructuredNotes(log.notes || '');
+    state.notes = parsedNotes.fields;
+    document.getElementById('sessionNotes').value = parsedNotes.manualText;
     renderAll();
     renderHistory();
     document.getElementById('logBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -832,6 +892,94 @@
       }
     });
     return next;
+  }
+
+  function buildNoteText() {
+    const lines = [];
+    NOTE_FIELDS.forEach(field => {
+      const value = state.notes[field.key];
+      if (value) lines.push(`${field.key}: ${value}`);
+    });
+
+    const manual = document.getElementById('sessionNotes').value.trim();
+    if (manual) {
+      if (lines.length) {
+        lines.push(`Notes: ${manual}`);
+      } else {
+        lines.push(manual);
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  function parseStructuredNotes(noteText) {
+    const original = noteText || '';
+    const lines = original.split(/\r?\n/);
+    const fields = {};
+    const manualLines = [];
+    let foundStructuredField = false;
+    let inManualNotes = false;
+
+    lines.forEach(line => {
+      if (inManualNotes) {
+        manualLines.push(line);
+        return;
+      }
+
+      const match = line.match(/^([^:]+):\s*(.*)$/);
+      if (!match) {
+        manualLines.push(line);
+        return;
+      }
+
+      const label = match[1].trim();
+      const value = match[2].trim();
+      const field = NOTE_FIELDS.find(item => item.key === label);
+
+      if (field && field.values.includes(value)) {
+        fields[field.key] = value;
+        foundStructuredField = true;
+        return;
+      }
+
+      if (label === 'Notes' && foundStructuredField) {
+        manualLines.push(value);
+        inManualNotes = true;
+        return;
+      }
+
+      manualLines.push(line);
+    });
+
+    if (!foundStructuredField) {
+      return { fields: {}, manualText: original.trim() };
+    }
+
+    return { fields, manualText: manualLines.join('\n').trim() };
+  }
+
+  function historyNoteTags(fields) {
+    const tags = [];
+    if (fields.Difficulty) tags.push(fields.Difficulty);
+    if (fields.Band) tags.push(fields.Band === 'None' ? 'No band' : `${fields.Band} band`);
+    if (fields.Pain) tags.push(fields.Pain === 'None' ? 'No pain' : `${fields.Pain} pain`);
+    if (fields.Quality) tags.push(fields.Quality);
+    return tags;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[char]));
+  }
+
+  function escapeJs(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   }
 
   function getLogKey(log) {
