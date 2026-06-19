@@ -361,7 +361,7 @@
     return records.map(r => ({
       id: r.id,
       timestamp: r.fields.Timestamp,
-      date: r.fields.Date,
+      date: sessionDateKey(r.fields.Timestamp, r.fields.Date),
       day: r.fields.Day,
       stage: r.fields.Stage,
       exercises: JSON.parse(r.fields.Exercises || '[]'),
@@ -450,7 +450,7 @@
 
     const log = {
       timestamp: new Date().toISOString(),
-      date: dateStr(new Date()),
+      date: localDateKey(new Date()),
       day: state.currentDay,
       stage: state.currentStage,
       exercises,
@@ -535,12 +535,12 @@
     document.getElementById('stageVal').textContent = state.currentStage;
 
     let streak = 0;
-    const today = dateStr(new Date());
-    const yesterday = dateStr(new Date(Date.now() - 86400000));
-    const logDates = [...new Set(logs.map(l => l.date))];
+    const today = localDateKey(new Date());
+    const yesterday = localDateKey(addLocalDays(new Date(), -1));
+    const logDates = [...new Set(logs.map(l => l.date).filter(Boolean))];
     if (logDates.includes(today) || logDates.includes(yesterday)) {
-      let check = logDates.includes(today) ? new Date() : new Date(Date.now()-86400000);
-      while (logDates.includes(dateStr(check))) { streak++; check = new Date(check-86400000); }
+      let check = logDates.includes(today) ? new Date() : addLocalDays(new Date(), -1);
+      while (logDates.includes(localDateKey(check))) { streak++; check = addLocalDays(check, -1); }
     }
     document.getElementById('streakVal').textContent = streak;
 
@@ -556,8 +556,8 @@
     const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     const today = new Date();
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(today); d.setDate(today.getDate()-i);
-      const ds = dateStr(d);
+      const d = addLocalDays(today, -i);
+      const ds = localDateKey(d);
       const dayLog = logs.find(l => l.date === ds);
       const wrap = document.createElement('div'); wrap.className = 'dot-wrap';
       const dot = document.createElement('div'); dot.className = 'dot';
@@ -615,7 +615,26 @@
   function toggleSet(key, idx) {
     state.sets[key][idx] = !state.sets[key][idx]; renderExercises();
   }
-  function dateStr(d) { return d.toISOString().split('T')[0]; }
+  function localDateKey(d) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function addLocalDays(d, days) {
+    const next = new Date(d);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  function sessionDateKey(timestamp, fallbackDate) {
+    if (timestamp) {
+      const parsed = new Date(timestamp);
+      if (!Number.isNaN(parsed.getTime())) return localDateKey(parsed);
+    }
+    return fallbackDate || localDateKey(new Date());
+  }
 
   load();
 </script>
