@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pull-Up Tracker</title>
+<title>Greyskull Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -28,200 +29,168 @@
     color: var(--text);
     font-family: var(--font-body);
     min-height: 100vh;
-    padding: 0 0 80px;
+    padding: 0 0 72px;
   }
 
-  nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 28px;
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    background: var(--bg);
-    z-index: 100;
+  /* ─── TOP NAV ─── */
+  .top-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 24px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg); z-index: 100;
   }
-
-  nav h1 { font-family: var(--font-display); font-size: 28px; letter-spacing: 1.5px; color: var(--accent); }
-
+  .top-nav h1 { font-family: var(--font-display); font-size: 26px; letter-spacing: 2px; color: var(--accent); }
   .sync-status {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
   }
-
-  .sync-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--muted);
-    transition: background 0.3s;
-  }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
   .sync-dot.ok { background: var(--green); }
   .sync-dot.err { background: var(--accent2); }
   .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
-
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-  .container { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+  /* ─── BOTTOM TAB BAR ─── */
+  .tab-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    display: flex; z-index: 100;
+  }
+  .tab-btn {
+    flex: 1; padding: 10px 8px 14px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    background: none; border: none; cursor: pointer; color: var(--muted);
+    font-family: var(--font-body); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; transition: color 0.15s;
+  }
+  .tab-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tab-btn.active { color: var(--accent); }
 
-  .streak-bar {
-    display: flex; gap: 12px;
-    padding: 20px 28px;
-    border-bottom: 1px solid var(--border);
-    max-width: 860px; margin: 0 auto;
-    align-items: center; flex-wrap: wrap;
+  /* ─── VIEWS ─── */
+  .view { display: none; }
+  .view.active { display: block; }
+  .container { max-width: 560px; margin: 0 auto; padding: 20px; }
+
+  /* ─── LOG VIEW ─── */
+  .date-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .date-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .date-input {
+    flex: 1; background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--font-body);
+    font-size: 14px; padding: 8px 12px; transition: border-color 0.15s;
+  }
+  .date-input:focus { outline: none; border-color: var(--accent); }
+
+  .section-lbl {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--accent2); margin-bottom: 10px;
   }
 
-  .stat-chip { display: flex; flex-direction: column; gap: 2px; }
-  .stat-chip .val { font-family: var(--font-display); font-size: 32px; line-height: 1; color: var(--accent); }
-  .stat-chip .val.green { color: var(--green); }
-  .stat-chip .lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
-  .stat-divider { width: 1px; height: 36px; background: var(--border); margin: 0 4px; }
-
-  .week-dots {
-    display: flex; gap: 6px;
-    padding: 16px 28px;
-    border-bottom: 1px solid var(--border);
-    max-width: 860px; margin: 0 auto;
+  .ex-card {
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: 10px; margin-bottom: 10px; overflow: hidden; transition: opacity 0.15s;
   }
-  .dot-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .dot { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface); }
-  .dot.trained-a { background: var(--accent); border-color: var(--accent); }
-  .dot.trained-b { background: var(--blue); border-color: var(--blue); }
-  .dot-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .ex-card.skipped { opacity: 0.4; }
 
-  .section-label { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent2); margin-bottom: 12px; }
+  .ex-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px 10px;
+  }
+  .ex-name { font-size: 15px; font-weight: 600; }
 
-  .stage-section { padding: 24px 0 0; }
-  .stage-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 28px; }
-  .stage-btn {
-    background: var(--surface); border: 1.5px solid var(--border); border-radius: 6px;
-    padding: 10px 8px; cursor: pointer; text-align: center; transition: all 0.15s;
-    color: var(--text); font-family: var(--font-body);
+  .skip-btn {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
+    border-radius: 4px; padding: 5px 10px; cursor: pointer; font-family: var(--font-body);
+    transition: all 0.12s; flex-shrink: 0;
   }
-  .stage-btn:hover { border-color: var(--accent); }
-  .stage-btn.active { border-color: var(--accent); background: #1f1a10; }
-  .stage-num { font-family: var(--font-display); font-size: 22px; color: var(--muted); line-height: 1; margin-bottom: 4px; }
-  .stage-btn.active .stage-num { color: var(--accent); }
-  .stage-name { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.3; color: var(--muted); }
-  .stage-btn.active .stage-name { color: var(--text); }
+  .skip-btn.skipped { border-color: var(--accent2); color: var(--accent2); background: #1a0e0e; }
 
-  .day-toggle { display: flex; gap: 8px; margin-bottom: 28px; }
-  .day-tab {
-    flex: 1; padding: 12px; background: var(--surface);
-    border: 1.5px solid var(--border); border-radius: 6px;
-    cursor: pointer; text-align: center; transition: all 0.15s;
-    color: var(--text); font-family: var(--font-body);
+  .variant-pills {
+    display: flex; gap: 6px; padding: 0 16px 12px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
-  .day-tab:hover { border-color: var(--accent); }
-  .day-tab.active { border-color: var(--accent); background: #1f1a10; }
-  .day-tab .tab-letter { font-family: var(--font-display); font-size: 28px; line-height: 1; color: var(--muted); }
-  .day-tab.active .tab-letter { color: var(--accent); }
-  .day-tab .tab-sub { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+  .variant-pills::-webkit-scrollbar { display: none; }
+  .pill {
+    flex-shrink: 0; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--muted); border-radius: 999px; padding: 5px 12px;
+    cursor: pointer; font-family: var(--font-body); font-size: 12px; font-weight: 600;
+    transition: all 0.12s; white-space: nowrap;
+  }
+  .pill:hover { border-color: var(--accent); color: var(--accent); }
+  .pill.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
 
-  .exercises { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; }
-  .ex-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
-  .ex-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  .ex-title { font-size: 14px; font-weight: 600; }
-  .ex-target { font-size: 11px; color: var(--muted); font-weight: 400; }
-  .ex-sets-row { display: flex; gap: 8px; padding: 12px 16px; align-items: center; flex-wrap: wrap; }
-  .set-btn {
-    width: 40px; height: 40px; border-radius: 50%;
-    border: 1.5px solid var(--border); background: var(--surface2);
-    color: var(--muted); font-family: var(--font-display); font-size: 18px;
-    cursor: pointer; display: flex; align-items: center; justify-content: center;
-    transition: all 0.12s; position: relative;
+  .inputs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 16px; }
+  .input-group { display: flex; flex-direction: column; gap: 6px; }
+  .input-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .num-input {
+    background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--font-display);
+    font-size: 32px; padding: 8px 12px; width: 100%; text-align: center;
+    transition: border-color 0.15s; -moz-appearance: textfield;
   }
-  .set-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .set-btn.done { border-color: var(--green); background: #0d2418; color: var(--green); }
-  .set-btn.done::after {
-    content: '✓'; position: absolute; font-size: 10px; top: -2px; right: -2px;
-    background: var(--green); color: var(--bg); border-radius: 50%;
-    width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
-    font-family: var(--font-body); font-weight: 700;
-  }
-  .set-label { font-size: 11px; color: var(--muted); margin-left: 4px; }
-
-  .activation-row { display: flex; gap: 8px; margin-bottom: 28px; }
-  .act-card {
-    flex: 1; background: var(--surface); border: 1.5px solid var(--border);
-    border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: all 0.15s;
-  }
-  .act-card:hover { border-color: var(--accent); }
-  .act-card.done { border-color: var(--green); background: #0d2418; }
-  .act-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-  .act-detail { font-size: 11px; color: var(--muted); line-height: 1.4; }
-  .act-check { font-size: 20px; margin-bottom: 6px; }
+  .num-input::-webkit-inner-spin-button,
+  .num-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .num-input:focus { outline: none; border-color: var(--accent); }
+  .num-input::placeholder { color: var(--border); }
+  .num-input:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .notes-area {
     width: 100%; background: var(--surface2); border: 1.5px solid var(--border);
     border-radius: 6px; color: var(--text); font-family: var(--font-body);
-    font-size: 13px; padding: 10px 12px; resize: none; min-height: 60px;
+    font-size: 13px; padding: 10px 12px; resize: none; min-height: 70px;
     margin-bottom: 12px; transition: border-color 0.15s;
   }
   .notes-area:focus { outline: none; border-color: var(--accent); }
   .notes-area::placeholder { color: var(--muted); }
 
-  .note-structured { display: grid; gap: 12px; margin-bottom: 12px; }
-  .note-group { display: grid; grid-template-columns: 82px 1fr; gap: 10px; align-items: start; }
-  .note-group-label {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--muted); padding-top: 7px;
-  }
-  .note-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .note-chip {
-    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
-    border-radius: 999px; padding: 6px 10px; cursor: pointer; font: inherit;
-    font-size: 11px; font-weight: 700; line-height: 1; transition: all 0.12s;
-  }
-  .note-chip:hover { border-color: var(--accent); color: var(--accent); }
-  .note-chip.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
-
   .log-btn {
     width: 100%; padding: 16px; background: var(--accent); color: var(--bg);
     border: none; border-radius: 8px; font-family: var(--font-display);
     font-size: 22px; letter-spacing: 1.5px; cursor: pointer; transition: all 0.15s;
-    margin-bottom: 36px;
+    margin-bottom: 10px;
   }
   .log-btn:hover { background: #f0b030; transform: translateY(-1px); }
   .log-btn:active { transform: translateY(0); }
   .log-btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
 
-  .history-section { padding-top: 8px; }
-  .history-title {
+  .edit-bar {
+    display: none; align-items: center; justify-content: center; gap: 10px;
+    margin-bottom: 24px;
+  }
+  .edit-bar.active { display: flex; }
+  .edit-ctx { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .cancel-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    border-radius: 4px; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 11px;
+  }
+  .cancel-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ─── HISTORY VIEW ─── */
+  .section-title {
     font-family: var(--font-display); font-size: 22px; letter-spacing: 1px;
     margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
-    display: flex; justify-content: space-between; align-items: center;
   }
+
   .history-list { display: flex; flex-direction: column; gap: 8px; }
-  .history-item {
+  .hist-item {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: 6px; padding: 12px 16px;
-    display: flex; align-items: flex-start; gap: 14px;
-    animation: slideIn 0.2s ease;
+    border-radius: 8px; padding: 14px 16px; animation: slideIn 0.2s ease;
   }
-  .hist-date { min-width: 80px; }
-  .hist-date .d { font-family: var(--font-display); font-size: 20px; color: var(--accent); line-height: 1; }
-  .hist-date .t { font-size: 10px; color: var(--muted); font-weight: 500; letter-spacing: 0.06em; }
-  .hist-divider { width: 1px; background: var(--border); align-self: stretch; }
-  .hist-detail { flex: 1; }
-  .hist-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; }
-  .hist-tag {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-    background: var(--surface2); border: 1px solid var(--border);
-    padding: 2px 7px; border-radius: 3px; color: var(--muted);
+  .hist-head {
+    display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px;
   }
-  .hist-tag.day-a { border-color: var(--accent); color: var(--accent); }
-  .hist-tag.day-b { border-color: var(--blue); color: var(--blue); }
-  .hist-tag.stage { border-color: var(--green); color: var(--green); }
-  .hist-tag.note { border-color: var(--border); color: var(--text); }
-  .hist-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 4px; }
+  .hist-date { font-family: var(--font-display); font-size: 20px; color: var(--accent); line-height: 1; }
+  .hist-dow { font-size: 10px; color: var(--muted); font-weight: 500; letter-spacing: 0.06em; }
+  .hist-exercises { display: flex; flex-direction: column; gap: 5px; }
+  .hist-ex {
+    display: grid; grid-template-columns: 72px 1fr auto; gap: 8px;
+    align-items: baseline; font-size: 13px;
+  }
+  .hist-ex-name { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .hist-ex-vol { font-weight: 600; }
+  .hist-ex-var { font-size: 11px; color: var(--muted); text-align: right; }
+  .hist-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 8px; }
   .hist-actions { display: flex; gap: 8px; margin-top: 10px; }
   .hist-action {
     border: 1px solid var(--border); background: var(--surface2); color: var(--muted);
@@ -229,824 +198,700 @@
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   }
   .hist-action:hover { border-color: var(--accent); color: var(--accent); }
-  .hist-action.delete:hover { border-color: var(--accent2); color: var(--accent2); }
+  .hist-action.del:hover { border-color: var(--accent2); color: var(--accent2); }
 
-  .edit-row { display: none; align-items: center; justify-content: center; gap: 10px; margin-top: -24px; margin-bottom: 36px; }
-  .edit-row.active { display: flex; }
-  .edit-context { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-  .cancel-edit {
-    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
-    border-radius: 4px; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 11px;
+  /* ─── PROGRESS VIEW ─── */
+  .stat-strip {
+    display: flex; border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; margin-bottom: 20px;
   }
-  .cancel-edit:hover { border-color: var(--accent); color: var(--accent); }
-
-  .empty {
-    text-align: center; padding: 32px; color: var(--muted);
-    font-size: 13px; border: 1px dashed var(--border); border-radius: 8px;
+  .stat-cell {
+    flex: 1; padding: 14px 12px; text-align: center;
+    border-right: 1px solid var(--border);
   }
-  .empty strong { display: block; font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; color: var(--border); margin-bottom: 6px; }
+  .stat-cell:last-child { border-right: none; }
+  .stat-val { font-family: var(--font-display); font-size: 28px; color: var(--accent); line-height: 1; }
+  .stat-val.green { color: var(--green); }
+  .stat-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
 
+  .week-strip { display: flex; gap: 6px; margin-bottom: 24px; }
+  .week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; }
+  .week-dot { width: 100%; max-width: 36px; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface); }
+  .week-dot.trained { background: var(--accent); border-color: var(--accent); }
+  .week-dot-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+
+  .chart-block { margin-bottom: 28px; }
+  .chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .chart-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .variant-badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    border: 1px solid var(--green); color: var(--green); background: #0d2418;
+    border-radius: 4px; padding: 3px 8px;
+  }
+  .chart-wrap { position: relative; height: 160px; }
+  .chart-empty { height: 80px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; }
+
+  /* ─── LOADING ─── */
   .loading-overlay {
     position: fixed; inset: 0; background: var(--bg);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 16px; z-index: 999; transition: opacity 0.4s;
   }
   .loading-overlay.hidden { opacity: 0; pointer-events: none; }
-  .loading-text { font-family: var(--font-display); font-size: 20px; letter-spacing: 2px; color: var(--muted); }
   .loading-bar { width: 160px; height: 2px; background: var(--border); border-radius: 2px; overflow: hidden; }
   .loading-bar-inner { height: 100%; background: var(--accent); animation: loadbar 1.2s ease-in-out infinite; }
   @keyframes loadbar { 0%{width:0;margin-left:0} 50%{width:100%;margin-left:0} 100%{width:0;margin-left:100%} }
 
-  @keyframes slideIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+  .empty { text-align: center; padding: 32px; color: var(--muted); font-size: 13px; border: 1px dashed var(--border); border-radius: 8px; }
+  .empty strong { display: block; font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; color: var(--border); margin-bottom: 6px; }
 
-  @media (max-width: 560px) {
-    .stage-grid { grid-template-columns: repeat(3, 1fr); }
-    .streak-bar, .week-dots { padding: 16px 20px; }
-    nav { padding: 16px 20px; }
-    .note-group { grid-template-columns: 1fr; gap: 6px; }
-    .note-group-label { padding-top: 0; }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+
+  @media (max-width: 440px) {
+    .top-nav { padding: 14px 16px; }
+    .container { padding: 16px; }
   }
 </style>
 </head>
 <body>
 
-<!-- LOADING -->
+<!-- LOADING OVERLAY -->
 <div class="loading-overlay" id="loadingOverlay">
-  <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--accent)">PULL-UP LOG</div>
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:4px;color:var(--accent)">GREYSKULL</div>
   <div class="loading-bar"><div class="loading-bar-inner"></div></div>
-  <div class="loading-text" id="loadingText">SYNCING WITH AIRTABLE...</div>
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:3px;color:var(--muted)">SYNCING...</div>
 </div>
 
-<nav>
-  <h1>PULL-UP LOG</h1>
+<!-- TOP NAV -->
+<div class="top-nav">
+  <h1>GREYSKULL</h1>
   <div class="sync-status">
     <div class="sync-dot" id="syncDot"></div>
     <span id="syncLabel">—</span>
   </div>
-</nav>
-
-<div class="streak-bar">
-  <div class="stat-chip"><div class="val" id="streakVal">0</div><div class="lbl">Day Streak</div></div>
-  <div class="stat-divider"></div>
-  <div class="stat-chip"><div class="val" id="totalVal">0</div><div class="lbl">Sessions</div></div>
-  <div class="stat-divider"></div>
-  <div class="stat-chip"><div class="val green" id="stageVal">1</div><div class="lbl">Current Stage</div></div>
-  <div class="stat-divider"></div>
-  <div class="stat-chip"><div class="val" id="lastVal">—</div><div class="lbl">Last Session</div></div>
 </div>
 
-<div class="week-dots" id="weekDots"></div>
+<!-- ─── LOG VIEW ─── -->
+<div class="view active" id="viewLog">
+  <div class="container">
+    <div class="date-row">
+      <span class="date-lbl">Date</span>
+      <input type="date" class="date-input" id="dateInput">
+    </div>
 
-<div class="container">
-  <div class="stage-section">
-    <div class="section-label">Current Stage</div>
-    <div class="stage-grid" id="stageGrid">
-      <button class="stage-btn active" data-stage="1" onclick="setStage(1)"><div class="stage-num">1</div><div class="stage-name">Ring Rows</div></button>
-      <button class="stage-btn" data-stage="2" onclick="setStage(2)"><div class="stage-num">2</div><div class="stage-name">Thick Band Pulls</div></button>
-      <button class="stage-btn" data-stage="3" onclick="setStage(3)"><div class="stage-num">3</div><div class="stage-name">Thinner Band</div></button>
-      <button class="stage-btn" data-stage="4" onclick="setStage(4)"><div class="stage-num">4</div><div class="stage-name">Unassisted Neg</div></button>
-      <button class="stage-btn" data-stage="5" onclick="setStage(5)"><div class="stage-num">5</div><div class="stage-name">Full Pull-Up ✓</div></button>
+    <div class="section-lbl">Exercises</div>
+    <div id="exerciseCards"></div>
+
+    <div class="section-lbl">Notes (optional)</div>
+    <textarea class="notes-area" id="sessionNotes" placeholder="How did it feel? Mods, pain, wins."></textarea>
+
+    <button class="log-btn" id="logBtn" onclick="submitLog()">LOG DAY</button>
+    <div class="edit-bar" id="editBar">
+      <span class="edit-ctx" id="editCtx"></span>
+      <button class="cancel-btn" onclick="cancelEdit()">Cancel</button>
     </div>
   </div>
+</div>
 
-  <div class="section-label">Today's Session</div>
-  <div class="day-toggle">
-    <button class="day-tab active" id="tabA" onclick="setDay('A')">
-      <div class="tab-letter">A</div><div class="tab-sub">Band Pulls + Negatives</div>
-    </button>
-    <button class="day-tab" id="tabB" onclick="setDay('B')">
-      <div class="tab-letter">B</div><div class="tab-sub">Ring Rows + Chins</div>
-    </button>
-  </div>
-
-  <div class="section-label">Activation (tap when done)</div>
-  <div class="activation-row">
-    <div class="act-card" id="act1" onclick="toggleAct(1)">
-      <div class="act-check" id="act1icon">○</div>
-      <div class="act-name">Dead Hangs</div>
-      <div class="act-detail">2 × 20–30 sec</div>
-    </div>
-    <div class="act-card" id="act2" onclick="toggleAct(2)">
-      <div class="act-check" id="act2icon">○</div>
-      <div class="act-name">Scapular Pull-Ups</div>
-      <div class="act-detail">2 × 5 reps</div>
-    </div>
-  </div>
-
-  <div class="section-label">Exercises</div>
-  <div class="exercises" id="exercisesContainer"></div>
-
-  <div class="section-label">Session Notes (optional)</div>
-  <div class="note-structured" id="noteStructured"></div>
-  <textarea class="notes-area" id="sessionNotes" placeholder="Anything unusual? Band changes, pain, failures, grip."></textarea>
-
-  <button class="log-btn" id="logBtn" onclick="submitSession()">LOG SESSION</button>
-  <div class="edit-row" id="editRow">
-    <span class="edit-context" id="editContext">Editing latest log</span>
-    <button class="cancel-edit" onclick="cancelEdit()">Cancel edit</button>
-  </div>
-
-  <div class="history-section">
-    <div class="history-title">HISTORY</div>
+<!-- ─── HISTORY VIEW ─── -->
+<div class="view" id="viewHistory">
+  <div class="container">
+    <div class="section-title">HISTORY</div>
     <div class="history-list" id="historyList"></div>
   </div>
 </div>
 
-<script>
-  // ─── CONFIG ───────────────────────────────────────────────────────────────
-  const AT_TOKEN = 'patij5jqH0iaquE10.c6c9db88b8a895ba7aec072ac7ec08959bbcf07474e194bbd8845f08bf01ca3e';
-  const AT_BASE  = 'appskyRmm9tzyMPwn';
-  const AT_TABLE = 'Sessions';
-  const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
-  const AT_HEADS = { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' };
-
-  // ─── STATE ────────────────────────────────────────────────────────────────
-  let logs = [];   // array of normalised log objects (sourced from Airtable)
-  let editingLogId = null;
-  let state = {
-    currentDay: 'A',
-    currentStage: 1,
-    sets: {},
-    activation: { 1: false, 2: false },
-    notes: {},
-  };
-
-  const EXERCISES = {
-    A: [
-      { key: 'bandPulls', name: 'Thick Band Pull-Ups', sets: 3, reps: '3–5 reps', note: 'Palms away. Full range. Pause at top.' },
-      { key: 'bandNeg',   name: 'Banded Negatives',   sets: 3, reps: '3 reps',   note: '4–6 sec descent. Dead hang at bottom.' },
-    ],
-    B: [
-      { key: 'ringRows',  name: 'Ring Inverted Rows',     sets: 3, reps: '6–10 reps', note: 'Chest to rings. Elbows back. Elevate feet when easy.' },
-      { key: 'bandChins', name: 'Band-Assisted Chin-Ups', sets: 2, reps: '3–5 reps',  note: 'Palms toward you. Lighter band than Day A.' },
-    ],
-  };
-
-  const NOTE_FIELDS = [
-    { key: 'Difficulty', label: 'Difficulty', values: ['Easy', 'Moderate', 'Hard', 'Max Effort'] },
-    { key: 'Band', label: 'Band', values: ['Purple', 'Orange', 'Red'], multi: true },
-    { key: 'Pain', label: 'Pain', values: ['None', 'Shoulder', 'Elbow', 'Wrist', 'Other'] },
-    { key: 'Quality', label: 'Quality', values: ['Clean reps', 'Partial reps', 'Failed reps', 'Strong negatives'] },
-  ];
-
-  // ─── AIRTABLE API ─────────────────────────────────────────────────────────
-  async function atFetch(path='', opts={}) {
-    const res = await fetch(AT_URL + path, { headers: AT_HEADS, ...opts });
-    if (!res.ok) throw new Error(`Airtable ${res.status}: ${await res.text()}`);
-    if (res.status === 204) return null;
-    return res.json();
-  }
-
-  // Fetch ALL records (handles Airtable pagination via offset)
-  async function fetchAllLogs() {
-    let records = [], offset = null;
-    do {
-      const params = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
-      if (offset) params.set('offset', offset);
-      const data = await atFetch('?' + params);
-      records = records.concat(data.records);
-      offset = data.offset || null;
-    } while (offset);
-
-    return records.map(r => ({
-      id: r.id,
-      timestamp: r.fields.Timestamp,
-      date: sessionDateKey(r.fields.Timestamp, r.fields.Date),
-      day: r.fields.Day,
-      stage: r.fields.Stage,
-      exercises: JSON.parse(r.fields.Exercises || '[]'),
-      notes: r.fields.Notes || '',
-      activation: JSON.parse(r.fields.Activation || '{}'),
-    }));
-  }
-
-  async function createLog(log) {
-    const data = await atFetch('', {
-      method: 'POST',
-      body: JSON.stringify({
-        records: [{
-          fields: {
-            Timestamp: log.timestamp,
-            Date: log.date,
-            Day: log.day,
-            Stage: log.stage,
-            Exercises: JSON.stringify(log.exercises),
-            Notes: log.notes,
-            Activation: JSON.stringify(log.activation),
-          }
-        }]
-      })
-    });
-    return data.records[0].id;
-  }
-
-  async function updateLog(log) {
-    await atFetch('', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        records: [{
-          id: log.id,
-          fields: airtableFields(log),
-        }]
-      })
-    });
-  }
-
-  async function deleteLog(id) {
-    await atFetch(`/${id}`, { method: 'DELETE' });
-  }
-
-  function airtableFields(log) {
-    return {
-      Timestamp: log.timestamp,
-      Date: log.date,
-      Day: log.day,
-      Stage: log.stage,
-      Exercises: JSON.stringify(log.exercises),
-      Notes: log.notes,
-      Activation: JSON.stringify(log.activation),
-    };
-  }
-
-  // ─── SYNC STATUS UI ───────────────────────────────────────────────────────
-  function setSyncStatus(status, label) {
-    const dot = document.getElementById('syncDot');
-    const lbl = document.getElementById('syncLabel');
-    dot.className = 'sync-dot ' + status;
-    lbl.textContent = label;
-  }
-
-  // ─── INIT ─────────────────────────────────────────────────────────────────
-  async function load() {
-    setSyncStatus('syncing', 'Syncing...');
-    try {
-      logs = await fetchAllLogs();
-      // derive suggested day + stage from last log
-      if (logs.length > 0) {
-        const last = logs[0];
-        state.currentStage = last.stage;
-        state.currentDay = last.day === 'A' ? 'B' : 'A';
-      }
-      setSyncStatus('ok', 'Airtable ✓');
-      // cache locally as fallback
-      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
-    } catch (e) {
-      console.warn('Airtable fetch failed, using local cache:', e);
-      setSyncStatus('err', 'Offline (cached)');
-      const cached = localStorage.getItem('pullup_logs_cache');
-      if (cached) logs = JSON.parse(cached);
-      if (logs.length > 0) {
-        state.currentStage = logs[0].stage;
-        state.currentDay = logs[0].day === 'A' ? 'B' : 'A';
-      }
-    }
-
-    renderAll();
-    renderHistory();
-    renderStats();
-    renderWeekDots();
-    updateTodayLabel();
-
-    const overlay = document.getElementById('loadingOverlay');
-    overlay.classList.add('hidden');
-    setTimeout(() => overlay.remove(), 400);
-  }
-
-  // ─── LOG SESSION ──────────────────────────────────────────────────────────
-  async function submitSession() {
-    if (editingLogId) {
-      await saveEditedSession();
-    } else {
-      await logSession();
-    }
-  }
-
-  function buildSessionLog(existingLog=null) {
-    const exs = EXERCISES[state.currentDay];
-    const exercises = exs.map(ex => {
-      const setState = normaliseSetState(ex.key, ex.sets);
-      return {
-        key: ex.key,
-        name: ex.name,
-        done: setState.filter(Boolean).length,
-        total: ex.sets,
-        sets: setState,
-      };
-    });
-
-    return {
-      id: existingLog?.id,
-      timestamp: existingLog?.timestamp || new Date().toISOString(),
-      date: existingLog?.date || localDateKey(new Date()),
-      day: state.currentDay,
-      stage: state.currentStage,
-      exercises,
-      notes: buildNoteText(),
-      activation: { ...state.activation },
-    };
-  }
-
-  async function logSession() {
-    const btn = document.getElementById('logBtn');
-    btn.disabled = true;
-    btn.textContent = 'SAVING...';
-    setSyncStatus('syncing', 'Saving...');
-
-    const log = { ...buildSessionLog(), localId: makeLocalId() };
-
-    try {
-      log.id = await createLog(log);
-      logs.unshift(log);
-      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
-      setSyncStatus('ok', 'Saved ✓');
-    } catch (e) {
-      console.error('Failed to save to Airtable:', e);
-      // still add to local cache so we don't lose the session
-      logs.unshift(log);
-      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
-      setSyncStatus('err', 'Saved locally');
-      alert('Airtable save failed — session kept locally.\n\n' + e.message);
-    }
-
-    resetFormAfterSubmit(true);
-
-    renderAll();
-    renderHistory();
-    renderStats();
-    renderWeekDots();
-
-    btn.disabled = false;
-    btn.textContent = '✓ LOGGED!';
-    btn.style.background = 'var(--green)';
-    setTimeout(() => {
-      btn.textContent = 'LOG SESSION';
-      btn.style.background = '';
-    }, 2500);
-  }
-
-  async function saveEditedSession() {
-    const btn = document.getElementById('logBtn');
-    const index = logs.findIndex(log => getLogKey(log) === editingLogId);
-    if (index === -1) {
-      cancelEdit();
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'SAVING CHANGES...';
-    setSyncStatus('syncing', 'Saving changes...');
-
-    const previous = logs[index];
-    const updated = { ...buildSessionLog(previous), localId: previous.localId };
-    logs[index] = updated;
-    localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
-
-    try {
-      if (updated.id) {
-        await updateLog(updated);
-      }
-      setSyncStatus('ok', 'Changes saved');
-      finishEditMode('CHANGES SAVED');
-    } catch (e) {
-      console.error('Failed to update Airtable:', e);
-      setSyncStatus('err', 'Offline: changes saved locally');
-      alert('Airtable update failed — changes saved locally.\n\n' + e.message);
-      finishEditMode('CHANGES SAVED LOCALLY');
-    }
-
-    renderAll();
-    renderHistory();
-    renderStats();
-    renderWeekDots();
-
-    btn.disabled = false;
-  }
-
-  function resetFormAfterSubmit(advanceDay=false) {
-    state.sets = {};
-    state.activation = { 1: false, 2: false };
-    state.notes = {};
-    document.getElementById('sessionNotes').value = '';
-    if (advanceDay) state.currentDay = state.currentDay === 'A' ? 'B' : 'A';
-  }
-
-  function finishEditMode(message) {
-    const btn = document.getElementById('logBtn');
-    editingLogId = null;
-    resetFormAfterSubmit(false);
-    renderEditState();
-    btn.textContent = `✓ ${message}!`;
-    btn.style.background = 'var(--green)';
-    setTimeout(() => {
-      btn.textContent = 'LOG SESSION';
-      btn.style.background = '';
-    }, 2500);
-  }
-
-  // ─── RENDER ───────────────────────────────────────────────────────────────
-  function renderAll() {
-    document.querySelectorAll('.stage-btn').forEach(b => {
-      b.classList.toggle('active', parseInt(b.dataset.stage) === state.currentStage);
-    });
-    document.getElementById('tabA').classList.toggle('active', state.currentDay === 'A');
-    document.getElementById('tabB').classList.toggle('active', state.currentDay === 'B');
-    [1,2].forEach(i => {
-      document.getElementById('act'+i).classList.toggle('done', state.activation[i]);
-      document.getElementById('act'+i+'icon').textContent = state.activation[i] ? '✓' : '○';
-    });
-    renderExercises();
-    renderNoteControls();
-    renderEditState();
-  }
-
-  function renderExercises() {
-    const container = document.getElementById('exercisesContainer');
-    container.innerHTML = '';
-    EXERCISES[state.currentDay].forEach(ex => {
-      if (!state.sets[ex.key]) state.sets[ex.key] = Array(ex.sets).fill(false);
-      const done = state.sets[ex.key].filter(Boolean).length;
-      const card = document.createElement('div');
-      card.className = 'ex-card';
-      card.innerHTML = `
-        <div class="ex-header">
-          <div>
-            <div class="ex-title">${ex.name}</div>
-            <div class="ex-target">${ex.sets} sets × ${ex.reps} &nbsp;·&nbsp; ${ex.note}</div>
-          </div>
-          <div style="font-family:var(--font-display);font-size:20px;color:${done===ex.sets?'var(--green)':'var(--muted)'}">${done}/${ex.sets}</div>
-        </div>
-        <div class="ex-sets-row">
-          ${state.sets[ex.key].map((d,i)=>`<button class="set-btn ${d?'done':''}" onclick="toggleSet('${ex.key}',${i})">${i+1}</button>`).join('')}
-          <span class="set-label">tap each set when complete</span>
-        </div>`;
-      container.appendChild(card);
-    });
-  }
-
-  function renderNoteControls() {
-    const container = document.getElementById('noteStructured');
-    container.innerHTML = NOTE_FIELDS.map(field => `
-      <div class="note-group">
-        <div class="note-group-label">${field.label}</div>
-        <div class="note-chips">
-          ${field.values.map(value => `
-            <button
-              type="button"
-              class="note-chip ${noteFieldHasValue(field, value) ? 'active' : ''}"
-              onclick="setNoteField('${field.key}', '${escapeJs(value)}')"
-              aria-pressed="${noteFieldHasValue(field, value)}"
-            >${escapeHtml(value)}</button>
-          `).join('')}
-        </div>
+<!-- ─── PROGRESS VIEW ─── -->
+<div class="view" id="viewProgress">
+  <div class="container">
+    <div class="stat-strip">
+      <div class="stat-cell">
+        <div class="stat-val" id="statTotal">0</div>
+        <div class="stat-lbl">Workouts</div>
       </div>
-    `).join('');
+      <div class="stat-cell">
+        <div class="stat-val green" id="statStreak">0</div>
+        <div class="stat-lbl">Streak</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-val" id="statLast">—</div>
+        <div class="stat-lbl">Last</div>
+      </div>
+    </div>
+
+    <div class="week-strip" id="weekStrip"></div>
+    <div id="chartSections"></div>
+  </div>
+</div>
+
+<!-- BOTTOM TAB BAR -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="tabLog" onclick="showView('Log')">
+    <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    Log
+  </button>
+  <button class="tab-btn" id="tabHistory" onclick="showView('History')">
+    <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    History
+  </button>
+  <button class="tab-btn" id="tabProgress" onclick="showView('Progress')">
+    <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    Progress
+  </button>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const AT_TOKEN = 'patij5jqH0iaquE10.c6c9db88b8a895ba7aec072ac7ec08959bbcf07474e194bbd8845f08bf01ca3e';
+const AT_BASE  = 'appskyRmm9tzyMPwn';
+const AT_TABLE = 'Workouts';
+const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
+const AT_HEADS = { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' };
+const CACHE_KEY = 'greyskull_v2_cache';
+
+const EXERCISES = [
+  { key: 'chinup', label: 'Chin Ups',  color: '#5b8def', variants: ['Band-Assisted', 'Negative', 'Full', 'Weighted'] },
+  { key: 'pushup', label: 'Push Ups',  color: '#e8a020', variants: ['Incline', 'Knee', 'Full', 'Decline', 'Weighted'] },
+  { key: 'situp',  label: 'Sit Ups',   color: '#3ab06a', variants: ['Crunch', 'Assisted', 'Full', 'Decline'] },
+  { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['No Jump', 'No Pushup', 'Full'] },
+];
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let logs = [];
+let editingId = null;
+let charts = {};
+
+const defaultState = () => ({
+  date: localDateKey(new Date()),
+  chinup: { variant: 'Band-Assisted', sets: '', reps: '', skip: false },
+  pushup: { variant: 'Knee',          sets: '', reps: '', skip: false },
+  situp:  { variant: 'Full',          sets: '', reps: '', skip: false },
+  burpee: { variant: 'No Jump',       sets: '', reps: '', skip: false },
+  notes: '',
+});
+let state = defaultState();
+
+// ─── AIRTABLE API ─────────────────────────────────────────────────────────────
+async function atFetch(path = '', opts = {}) {
+  const res = await fetch(AT_URL + path, { headers: AT_HEADS, ...opts });
+  if (!res.ok) throw new Error(`AT ${res.status}: ${await res.text()}`);
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function fetchAllLogs() {
+  let records = [], offset = null;
+  do {
+    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
+    if (offset) p.set('offset', offset);
+    const data = await atFetch('?' + p);
+    records = records.concat(data.records);
+    offset = data.offset || null;
+  } while (offset);
+  return records.map(normalizeRecord);
+}
+
+function cap(s) { return s[0].toUpperCase() + s.slice(1); }
+
+function normalizeRecord(r) {
+  const f = r.fields;
+  const log = { id: r.id, timestamp: f.Timestamp || '', date: f.Date || '', notes: f.Notes || '' };
+  EXERCISES.forEach(ex => {
+    const k = cap(ex.key);
+    log[ex.key] = {
+      variant: f[k + '_Variant'] || '',
+      sets: f[k + '_Sets'] ?? null,
+      reps: f[k + '_Reps'] ?? null,
+    };
+  });
+  return log;
+}
+
+function buildFields(log) {
+  const f = { Timestamp: log.timestamp, Date: log.date, Notes: log.notes || '' };
+  EXERCISES.forEach(ex => {
+    const k = cap(ex.key);
+    const d = log[ex.key];
+    f[k + '_Variant'] = d.variant || null;
+    f[k + '_Sets']    = num(d.sets);
+    f[k + '_Reps']    = num(d.reps);
+  });
+  return f;
+}
+
+function num(v) { return (v !== '' && v != null) ? Number(v) : null; }
+
+async function createLog(log) {
+  const data = await atFetch('', {
+    method: 'POST',
+    body: JSON.stringify({ records: [{ fields: buildFields(log) }] }),
+  });
+  return data.records[0].id;
+}
+
+async function updateLog(log) {
+  await atFetch('', {
+    method: 'PATCH',
+    body: JSON.stringify({ records: [{ id: log.id, fields: buildFields(log) }] }),
+  });
+}
+
+async function deleteLog(id) { await atFetch('/' + id, { method: 'DELETE' }); }
+
+// ─── SYNC STATUS ──────────────────────────────────────────────────────────────
+function setSync(status, label) {
+  document.getElementById('syncDot').className = 'sync-dot ' + status;
+  document.getElementById('syncLabel').textContent = label;
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+async function load() {
+  setSync('syncing', 'Syncing...');
+  try {
+    logs = await fetchAllLogs();
+    setSync('ok', 'Airtable ✓');
+    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+  } catch (e) {
+    console.warn('Airtable unavailable, using cache:', e);
+    setSync('err', 'Offline (cached)');
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) logs = JSON.parse(cached);
   }
 
-  function renderStats() {
-    document.getElementById('totalVal').textContent = logs.length;
-    document.getElementById('stageVal').textContent = state.currentStage;
-
-    let streak = 0;
-    const today = localDateKey(new Date());
-    const yesterday = localDateKey(addLocalDays(new Date(), -1));
-    const logDates = [...new Set(logs.map(l => l.date).filter(Boolean))];
-    if (logDates.includes(today) || logDates.includes(yesterday)) {
-      let check = logDates.includes(today) ? new Date() : addLocalDays(new Date(), -1);
-      while (logDates.includes(localDateKey(check))) { streak++; check = addLocalDays(check, -1); }
-    }
-    document.getElementById('streakVal').textContent = streak;
-
-    if (logs.length > 0) {
-      const d = new Date(logs[0].timestamp);
-      document.getElementById('lastVal').textContent = d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
-    } else {
-      document.getElementById('lastVal').textContent = '—';
-    }
+  // Pre-fill variants from most recent log
+  if (logs.length > 0) {
+    EXERCISES.forEach(ex => {
+      if (logs[0][ex.key]?.variant) state[ex.key].variant = logs[0][ex.key].variant;
+    });
   }
 
-  function renderWeekDots() {
-    const container = document.getElementById('weekDots');
-    container.innerHTML = '';
-    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const d = addLocalDays(today, -i);
-      const ds = localDateKey(d);
-      const dayLog = logs.find(l => l.date === ds);
-      const wrap = document.createElement('div'); wrap.className = 'dot-wrap';
-      const dot = document.createElement('div'); dot.className = 'dot';
-      if (dayLog) dot.classList.add('trained-'+dayLog.day.toLowerCase());
-      dot.title = dayLog ? `Day ${dayLog.day} - Stage ${dayLog.stage}` : 'Rest';
-      const lbl = document.createElement('div'); lbl.className = 'dot-lbl';
-      lbl.textContent = i===0 ? 'Today' : days[d.getDay()];
-      wrap.appendChild(dot); wrap.appendChild(lbl); container.appendChild(wrap);
-    }
+  document.getElementById('dateInput').value = state.date;
+  renderCards();
+  renderHistory();
+
+  const overlay = document.getElementById('loadingOverlay');
+  overlay.classList.add('hidden');
+  setTimeout(() => overlay.remove(), 400);
+}
+
+// ─── VIEW SWITCHING ───────────────────────────────────────────────────────────
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('view' + name).classList.add('active');
+  document.getElementById('tab' + name).classList.add('active');
+  if (name === 'Progress') renderProgress();
+}
+
+// ─── LOG VIEW ─────────────────────────────────────────────────────────────────
+function renderCards() {
+  const container = document.getElementById('exerciseCards');
+  container.innerHTML = '';
+  EXERCISES.forEach(ex => {
+    const s = state[ex.key];
+    const div = document.createElement('div');
+    div.className = 'ex-card' + (s.skip ? ' skipped' : '');
+    div.id = 'card-' + ex.key;
+    div.innerHTML = `
+      <div class="ex-header">
+        <span class="ex-name">${ex.label}</span>
+        <button class="skip-btn${s.skip ? ' skipped' : ''}" onclick="toggleSkip('${ex.key}')">
+          ${s.skip ? 'Skipped' : 'Skip'}
+        </button>
+      </div>
+      <div class="variant-pills">
+        ${ex.variants.map(v =>
+          `<button class="pill${s.variant === v ? ' active' : ''}" onclick="setVariant('${ex.key}','${esc(v)}')">${h(v)}</button>`
+        ).join('')}
+      </div>
+      <div class="inputs-row">
+        <div class="input-group">
+          <span class="input-lbl">Sets</span>
+          <input class="num-input" type="number" inputmode="numeric" min="1" placeholder="—"
+            id="sets-${ex.key}" value="${s.sets}" ${s.skip ? 'disabled' : ''}
+            oninput="state['${ex.key}'].sets=this.value">
+        </div>
+        <div class="input-group">
+          <span class="input-lbl">Reps / set</span>
+          <input class="num-input" type="number" inputmode="numeric" min="1" placeholder="—"
+            id="reps-${ex.key}" value="${s.reps}" ${s.skip ? 'disabled' : ''}
+            oninput="state['${ex.key}'].reps=this.value">
+        </div>
+      </div>`;
+    container.appendChild(div);
+  });
+}
+
+function setVariant(key, variant) {
+  syncInputsToState();
+  state[key].variant = variant;
+  renderCards();
+}
+
+function toggleSkip(key) {
+  syncInputsToState();
+  state[key].skip = !state[key].skip;
+  renderCards();
+}
+
+function syncInputsToState() {
+  EXERCISES.forEach(ex => {
+    const s = document.getElementById('sets-' + ex.key);
+    const r = document.getElementById('reps-' + ex.key);
+    if (s) state[ex.key].sets = s.value;
+    if (r) state[ex.key].reps = r.value;
+  });
+}
+
+// ─── SUBMIT ───────────────────────────────────────────────────────────────────
+async function submitLog() {
+  if (editingId) { await saveEdit(); } else { await saveNew(); }
+}
+
+function buildLogFromState() {
+  syncInputsToState();
+  const log = {
+    timestamp: new Date().toISOString(),
+    date: document.getElementById('dateInput').value || localDateKey(new Date()),
+    notes: document.getElementById('sessionNotes').value.trim(),
+  };
+  EXERCISES.forEach(ex => {
+    const s = state[ex.key];
+    log[ex.key] = s.skip
+      ? { variant: '', sets: null, reps: null }
+      : { variant: s.variant, sets: num(s.sets), reps: num(s.reps) };
+  });
+  return log;
+}
+
+async function saveNew() {
+  const btn = document.getElementById('logBtn');
+  btn.disabled = true; btn.textContent = 'SAVING...';
+  setSync('syncing', 'Saving...');
+
+  const log = buildLogFromState();
+
+  try {
+    log.id = await createLog(log);
+    logs.unshift(log);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+    setSync('ok', 'Saved ✓');
+  } catch (e) {
+    console.error(e);
+    log.id = localId();
+    logs.unshift(log);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+    setSync('err', 'Saved locally');
+    alert('Airtable unavailable — kept locally.\n\n' + e.message);
   }
 
-  function renderHistory() {
-    const list = document.getElementById('historyList');
-    if (logs.length === 0) {
-      list.innerHTML = '<div class="empty"><strong>NO SESSIONS YET</strong>Log your first session above.</div>';
-      return;
-    }
-    const stageNames = ['','Ring Rows','Thick Band','Thinner Band','Unassisted Neg','Full Pull-Up ✓'];
-    list.innerHTML = logs.slice(0,30).map((log, index) => {
-      const d = new Date(log.timestamp);
-      const parsedNotes = parseStructuredNotes(log.notes || '');
-      const noteTags = historyNoteTags(parsedNotes.fields);
-      const rawNote = parsedNotes.manualText || (Object.keys(parsedNotes.fields).length ? '' : log.notes);
-      return `
-        <div class="history-item ${editingLogId === getLogKey(log) ? 'editing' : ''}">
-          <div class="hist-date">
-            <div class="d">${d.getDate()} ${d.toLocaleDateString('en-AU',{month:'short'})}</div>
-            <div class="t">${d.toLocaleDateString('en-AU',{weekday:'short'})} · ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'})}</div>
-          </div>
-          <div class="hist-divider"></div>
-          <div class="hist-detail">
-            <div class="hist-row">
-              <span class="hist-tag day-${log.day.toLowerCase()}">Day ${log.day}</span>
-              <span class="hist-tag stage">Stage ${log.stage} · ${stageNames[log.stage]||'?'}</span>
-            </div>
-            <div class="hist-row" style="margin-top:6px">
-              ${log.exercises.map(e=>`<span class="hist-tag">${escapeHtml(e.name)}: ${e.done}/${e.total} sets</span>`).join('')}
-            </div>
-            ${noteTags.length ? `<div class="hist-row" style="margin-top:6px">${noteTags.map(tag=>`<span class="hist-tag note">${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
-            ${rawNote ? `<div class="hist-note">"${escapeHtml(rawNote)}"</div>` : ''}
-            ${index === 0 ? `
-              <div class="hist-actions">
-                <button class="hist-action" onclick="editLatestLog()">Edit</button>
-                <button class="hist-action delete" onclick="deleteLatestLog()">Delete</button>
-              </div>` : ''}
-          </div>
-        </div>`;
-    }).join('');
+  state = defaultState();
+  if (logs.length > 0) EXERCISES.forEach(ex => {
+    if (logs[0][ex.key]?.variant) state[ex.key].variant = logs[0][ex.key].variant;
+  });
+  document.getElementById('dateInput').value = state.date;
+  document.getElementById('sessionNotes').value = '';
+
+  renderCards();
+  renderHistory();
+
+  btn.disabled = false;
+  btn.textContent = '✓ LOGGED!';
+  btn.style.background = 'var(--green)';
+  setTimeout(() => { btn.textContent = 'LOG DAY'; btn.style.background = ''; }, 2500);
+}
+
+async function saveEdit() {
+  const btn = document.getElementById('logBtn');
+  const idx = logs.findIndex(l => logKey(l) === editingId);
+  if (idx === -1) { cancelEdit(); return; }
+
+  btn.disabled = true; btn.textContent = 'SAVING...';
+  setSync('syncing', 'Saving...');
+
+  const updated = { ...buildLogFromState(), id: logs[idx].id, timestamp: logs[idx].timestamp };
+  logs[idx] = updated;
+  localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+
+  try {
+    if (updated.id && !updated.id.startsWith('local-')) await updateLog(updated);
+    setSync('ok', 'Changes saved');
+  } catch (e) {
+    console.error(e);
+    setSync('err', 'Saved locally');
+    alert('Update failed — saved locally.\n\n' + e.message);
   }
 
-  function updateTodayLabel() {}
+  editingId = null;
+  state = defaultState();
+  document.getElementById('dateInput').value = state.date;
+  document.getElementById('sessionNotes').value = '';
 
-  // ─── INTERACTIONS ─────────────────────────────────────────────────────────
-  function setStage(s) {
-    state.currentStage = s;
-    renderAll(); renderStats();
-  }
-  function setDay(d) {
-    state.currentDay = d; state.sets = {}; renderAll();
-  }
-  function toggleAct(i) {
-    state.activation[i] = !state.activation[i]; renderAll();
-  }
-  function toggleSet(key, idx) {
-    state.sets[key][idx] = !state.sets[key][idx]; renderExercises();
-  }
+  renderCards();
+  renderHistory();
+  renderEditBar();
 
-  function setNoteField(key, value) {
-    const field = NOTE_FIELDS.find(item => item.key === key);
-    if (field?.multi) {
-      const selected = Array.isArray(state.notes[key]) ? [...state.notes[key]] : [];
-      state.notes[key] = selected.includes(value)
-        ? selected.filter(item => item !== value)
-        : [...selected, value];
-    } else {
-      state.notes[key] = state.notes[key] === value ? '' : value;
-    }
-    renderNoteControls();
-  }
+  btn.disabled = false;
+  btn.textContent = '✓ SAVED!';
+  btn.style.background = 'var(--green)';
+  setTimeout(() => { btn.textContent = 'LOG DAY'; btn.style.background = ''; }, 2500);
+}
 
-  function editLatestLog() {
-    if (logs.length === 0) return;
-    const log = logs[0];
-    editingLogId = getLogKey(log);
-    state.currentDay = log.day || 'A';
-    state.currentStage = log.stage || 1;
-    state.activation = { 1: false, 2: false, ...(log.activation || {}) };
-    state.sets = setsFromLog(log);
-    const parsedNotes = parseStructuredNotes(log.notes || '');
-    state.notes = parsedNotes.fields;
-    document.getElementById('sessionNotes').value = parsedNotes.manualText;
-    renderAll();
+// ─── EDIT / DELETE ────────────────────────────────────────────────────────────
+function editLog(key) {
+  const log = logs.find(l => logKey(l) === key);
+  if (!log) return;
+
+  editingId = key;
+  state.date = log.date;
+  document.getElementById('dateInput').value = log.date;
+  document.getElementById('sessionNotes').value = log.notes || '';
+
+  EXERCISES.forEach(ex => {
+    const d = log[ex.key];
+    const hasData = d.variant || d.sets != null;
+    state[ex.key] = {
+      variant: d.variant || ex.variants[0],
+      sets: d.sets != null ? String(d.sets) : '',
+      reps: d.reps != null ? String(d.reps) : '',
+      skip: !hasData,
+    };
+  });
+
+  renderCards();
+  renderEditBar();
+  showView('Log');
+  document.getElementById('logBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  state = defaultState();
+  document.getElementById('dateInput').value = state.date;
+  document.getElementById('sessionNotes').value = '';
+  renderCards();
+  renderEditBar();
+  setSync('ok', 'Edit cancelled');
+}
+
+function renderEditBar() {
+  const bar = document.getElementById('editBar');
+  const btn = document.getElementById('logBtn');
+  const on = Boolean(editingId);
+  bar.classList.toggle('active', on);
+  if (!btn.disabled) btn.textContent = on ? 'SAVE CHANGES' : 'LOG DAY';
+  if (on) {
+    const log = logs.find(l => logKey(l) === editingId);
+    if (log) document.getElementById('editCtx').textContent = 'Editing ' + fmtDate(log.date);
+  }
+}
+
+async function deleteEntry(key) {
+  const log = logs.find(l => logKey(l) === key);
+  if (!log || !confirm('Delete this log?')) return;
+  setSync('syncing', 'Deleting...');
+  try {
+    if (log.id && !log.id.startsWith('local-')) await deleteLog(log.id);
+    logs = logs.filter(l => logKey(l) !== key);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+    if (editingId === key) cancelEdit();
+    setSync('ok', 'Deleted');
     renderHistory();
-    document.getElementById('logBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    console.error(e);
+    setSync('err', 'Delete failed');
+    alert('Delete failed.\n\n' + e.message);
+  }
+}
+
+// ─── HISTORY RENDER ───────────────────────────────────────────────────────────
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  if (logs.length === 0) {
+    list.innerHTML = '<div class="empty"><strong>NO LOGS YET</strong>Log your first day above.</div>';
+    return;
   }
 
-  function cancelEdit() {
-    if (!editingLogId) return;
-    editingLogId = null;
-    resetFormAfterSubmit(false);
-    setSyncStatus('ok', 'Edit cancelled');
-    renderAll();
-    renderHistory();
+  list.innerHTML = logs.slice(0, 30).map(log => {
+    const key = logKey(log);
+    const exRows = EXERCISES.map(ex => {
+      const d = log[ex.key];
+      if (!d.variant && d.sets == null) return '';
+      const vol = (d.sets != null && d.reps != null)
+        ? `${d.sets}×${d.reps}`
+        : (d.sets != null ? `${d.sets} sets` : '—');
+      return `<div class="hist-ex">
+        <span class="hist-ex-name">${ex.label}</span>
+        <span class="hist-ex-vol">${vol}</span>
+        <span class="hist-ex-var">${h(d.variant)}</span>
+      </div>`;
+    }).filter(Boolean).join('');
+
+    return `<div class="hist-item">
+      <div class="hist-head">
+        <span class="hist-date">${fmtDate(log.date)}</span>
+        <span class="hist-dow">${fmtDow(log.date)}</span>
+      </div>
+      <div class="hist-exercises">
+        ${exRows || '<span style="color:var(--muted);font-size:12px">Nothing logged</span>'}
+      </div>
+      ${log.notes ? `<div class="hist-note">"${h(log.notes)}"</div>` : ''}
+      <div class="hist-actions">
+        <button class="hist-action" onclick="editLog('${key}')">Edit</button>
+        <button class="hist-action del" onclick="deleteEntry('${key}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── PROGRESS RENDER ──────────────────────────────────────────────────────────
+function renderProgress() {
+  renderStats();
+  renderWeek();
+  renderCharts();
+}
+
+function renderStats() {
+  document.getElementById('statTotal').textContent = logs.length;
+  document.getElementById('statStreak').textContent = calcStreak();
+  if (logs.length > 0) {
+    document.getElementById('statLast').textContent = fmtDate(logs[0].date);
   }
+}
 
-  async function deleteLatestLog() {
-    if (logs.length === 0) return;
-    const log = logs[0];
-    if (!confirm('Delete the most recent log?')) return;
+function calcStreak() {
+  const dates = new Set(logs.map(l => l.date).filter(Boolean));
+  const today = localDateKey(new Date());
+  const yesterday = localDateKey(addDays(new Date(), -1));
+  if (!dates.has(today) && !dates.has(yesterday)) return 0;
+  let count = 0;
+  let d = dates.has(today) ? new Date() : addDays(new Date(), -1);
+  while (dates.has(localDateKey(d))) { count++; d = addDays(d, -1); }
+  return count;
+}
 
-    setSyncStatus('syncing', 'Deleting...');
-    try {
-      if (log.id) {
-        await deleteLog(log.id);
-      }
-      logs.shift();
-      localStorage.setItem('pullup_logs_cache', JSON.stringify(logs));
-      if (editingLogId === getLogKey(log)) {
-        editingLogId = null;
-        resetFormAfterSubmit(false);
-      }
-      setSyncStatus('ok', 'Deleted');
-      renderAll();
-      renderHistory();
-      renderStats();
-      renderWeekDots();
-    } catch (e) {
-      console.error('Failed to delete from Airtable:', e);
-      setSyncStatus('err', 'Delete failed');
-      alert('Delete failed — log was kept.\n\n' + e.message);
-    }
+function renderWeek() {
+  const strip = document.getElementById('weekStrip');
+  strip.innerHTML = '';
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const trained = new Set(logs.map(l => l.date));
+  for (let i = 6; i >= 0; i--) {
+    const d = addDays(new Date(), -i);
+    const ds = localDateKey(d);
+    const wrap = document.createElement('div'); wrap.className = 'week-day';
+    const dot = document.createElement('div'); dot.className = 'week-dot' + (trained.has(ds) ? ' trained' : '');
+    const lbl = document.createElement('div'); lbl.className = 'week-dot-lbl';
+    lbl.textContent = i === 0 ? 'Today' : days[d.getDay()];
+    wrap.appendChild(dot); wrap.appendChild(lbl); strip.appendChild(wrap);
   }
+}
 
-  function renderEditState() {
-    const isEditing = Boolean(editingLogId);
-    const row = document.getElementById('editRow');
-    const btn = document.getElementById('logBtn');
-    row.classList.toggle('active', isEditing);
-    if (!btn.disabled) {
-      btn.textContent = isEditing ? 'SAVE CHANGES' : 'LOG SESSION';
-    }
-    if (isEditing) {
-      const log = logs.find(item => getLogKey(item) === editingLogId);
-      if (log) {
-        const d = new Date(log.timestamp);
-        document.getElementById('editContext').textContent = `Editing ${d.toLocaleDateString('en-AU', { day:'numeric', month:'short' })} log`;
-      }
-    }
-  }
+function renderCharts() {
+  // Destroy existing chart instances
+  Object.values(charts).forEach(c => c && c.destroy());
+  charts = {};
 
-  function normaliseSetState(key, total) {
-    const existing = Array.isArray(state.sets[key]) ? state.sets[key] : [];
-    return Array.from({ length: total }, (_, i) => Boolean(existing[i]));
-  }
+  const sections = document.getElementById('chartSections');
+  sections.innerHTML = '';
 
-  function setsFromLog(log) {
-    const next = {};
-    const exercises = EXERCISES[log.day] || [];
-    exercises.forEach(ex => {
-      const loggedExercise = (log.exercises || []).find(item => item.key === ex.key || item.name === ex.name);
-      if (loggedExercise && Array.isArray(loggedExercise.sets)) {
-        next[ex.key] = Array.from({ length: ex.sets }, (_, i) => Boolean(loggedExercise.sets[i]));
-      } else {
-        const done = Math.min(loggedExercise?.done || 0, ex.sets);
-        next[ex.key] = Array.from({ length: ex.sets }, (_, i) => i < done);
-      }
+  const cutoff = localDateKey(addDays(new Date(), -60));
+
+  EXERCISES.forEach(ex => {
+    const pts = logs
+      .filter(l => l.date >= cutoff && l[ex.key].sets != null && l[ex.key].reps != null)
+      .map(l => ({ date: l.date, total: l[ex.key].sets * l[ex.key].reps, sets: l[ex.key].sets, reps: l[ex.key].reps, variant: l[ex.key].variant }))
+      .reverse();
+
+    const currentVar = logs.find(l => l[ex.key]?.variant)?.[ex.key]?.variant;
+
+    const block = document.createElement('div');
+    block.className = 'chart-block';
+    block.innerHTML = `
+      <div class="chart-head">
+        <span class="chart-title">${ex.label}</span>
+        ${currentVar ? `<span class="variant-badge">${h(currentVar)}</span>` : ''}
+      </div>
+      ${pts.length === 0
+        ? `<div class="chart-empty">No data yet</div>`
+        : `<div class="chart-wrap"><canvas id="chart-${ex.key}"></canvas></div>`
+      }`;
+    sections.appendChild(block);
+
+    if (pts.length === 0) return;
+
+    const ctx = document.getElementById('chart-' + ex.key).getContext('2d');
+    charts[ex.key] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: pts.map(p => fmtDate(p.date)),
+        datasets: [{
+          data: pts.map(p => p.total),
+          borderColor: ex.color,
+          backgroundColor: ex.color + '20',
+          pointBackgroundColor: ex.color,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#141416',
+            borderColor: '#2a2a30',
+            borderWidth: 1,
+            titleColor: '#e8e6e0',
+            bodyColor: '#9b98a0',
+            callbacks: {
+              label: item => {
+                const p = pts[item.dataIndex];
+                return `${p.sets}×${p.reps} reps · ${p.variant}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#6b6870', font: { size: 10 }, maxTicksLimit: 7 },
+            grid: { color: '#1c1c20' },
+          },
+          y: {
+            min: 0,
+            ticks: { color: '#6b6870', font: { size: 10 } },
+            grid: { color: '#1c1c20' },
+            title: { display: true, text: 'Total reps', color: '#6b6870', font: { size: 10 } },
+          },
+        },
+      },
     });
-    return next;
-  }
+  });
+}
 
-  function buildNoteText() {
-    const lines = [];
-    NOTE_FIELDS.forEach(field => {
-      const value = noteFieldTextValue(field);
-      if (value) lines.push(`${field.key}: ${value}`);
-    });
+// ─── UTILS ────────────────────────────────────────────────────────────────────
+function localDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function logKey(l) { return l.id || l.timestamp; }
+function localId() { return 'local-' + (window.crypto?.randomUUID?.() || Date.now()); }
+function fmtDate(ds) {
+  const d = new Date(ds + 'T12:00:00');
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
+}
+function fmtDow(ds) {
+  return new Date(ds + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'long' });
+}
+function h(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function esc(v) { return String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
-    const manual = document.getElementById('sessionNotes').value.trim();
-    if (manual) {
-      if (lines.length) {
-        lines.push(`Notes: ${manual}`);
-      } else {
-        lines.push(manual);
-      }
-    }
-
-    return lines.join('\n');
-  }
-
-  function parseStructuredNotes(noteText) {
-    const original = noteText || '';
-    const lines = original.split(/\r?\n/);
-    const fields = {};
-    const manualLines = [];
-    let foundStructuredField = false;
-    let inManualNotes = false;
-
-    lines.forEach(line => {
-      if (inManualNotes) {
-        manualLines.push(line);
-        return;
-      }
-
-      const match = line.match(/^([^:]+):\s*(.*)$/);
-      if (!match) {
-        manualLines.push(line);
-        return;
-      }
-
-      const label = match[1].trim();
-      const value = match[2].trim();
-      const field = NOTE_FIELDS.find(item => item.key === label);
-
-      if (field?.multi) {
-        const values = value.split(/\s*\+\s*/).filter(item => field.values.includes(item));
-        if (values.length) {
-          fields[field.key] = values;
-          foundStructuredField = true;
-          return;
-        }
-      }
-
-      if (field && !field.multi && field.values.includes(value)) {
-        fields[field.key] = value;
-        foundStructuredField = true;
-        return;
-      }
-
-      if (label === 'Notes' && foundStructuredField) {
-        manualLines.push(value);
-        inManualNotes = true;
-        return;
-      }
-
-      manualLines.push(line);
-    });
-
-    if (!foundStructuredField) {
-      return { fields: {}, manualText: original.trim() };
-    }
-
-    return { fields, manualText: manualLines.join('\n').trim() };
-  }
-
-  function historyNoteTags(fields) {
-    const tags = [];
-    if (fields.Difficulty) tags.push(fields.Difficulty);
-    if (fields.Band) {
-      const bands = Array.isArray(fields.Band) ? fields.Band : [fields.Band];
-      if (bands.length) tags.push(`${bands.join(' + ')} band`);
-    }
-    if (fields.Pain) tags.push(fields.Pain === 'None' ? 'No pain' : `${fields.Pain} pain`);
-    if (fields.Quality) tags.push(fields.Quality);
-    return tags;
-  }
-
-  function noteFieldHasValue(field, value) {
-    if (field.multi) {
-      return Array.isArray(state.notes[field.key]) && state.notes[field.key].includes(value);
-    }
-    return state.notes[field.key] === value;
-  }
-
-  function noteFieldTextValue(field) {
-    const value = state.notes[field.key];
-    if (field.multi) {
-      return Array.isArray(value) ? value.join(' + ') : '';
-    }
-    return value || '';
-  }
-
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, char => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    }[char]));
-  }
-
-  function escapeJs(value) {
-    return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  }
-
-  function getLogKey(log) {
-    return log.id || log.localId || log.timestamp;
-  }
-
-  function makeLocalId() {
-    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-    return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-  function localDateKey(d) {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  function addLocalDays(d, days) {
-    const next = new Date(d);
-    next.setDate(next.getDate() + days);
-    return next;
-  }
-
-  function sessionDateKey(timestamp, fallbackDate) {
-    if (timestamp) {
-      const parsed = new Date(timestamp);
-      if (!Number.isNaN(parsed.getTime())) return localDateKey(parsed);
-    }
-    return fallbackDate || localDateKey(new Date());
-  }
-
-  load();
+load();
 </script>
 </body>
 </html>
