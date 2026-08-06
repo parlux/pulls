@@ -106,7 +106,9 @@
   .pill:hover { border-color: var(--accent); color: var(--accent); }
   .pill.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
 
-  .inputs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px 10px; }
+  .inputs-row { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 16px 10px; }
+  .ex-target-row { padding: 0 16px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; }
+  .ex-target-row.progression { color: var(--green); }
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
   .num-input {
@@ -432,6 +434,37 @@ function showView(name) {
   if (name === 'Progress') renderProgress();
 }
 
+// ─── PROGRESSION ──────────────────────────────────────────────────────────────
+function getISOWeek(d) {
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  dt.setUTCDate(dt.getUTCDate() + 4 - (dt.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+}
+
+function getLastSessionTarget(key) {
+  const today = localDateKey(new Date());
+  const pastDates = [...new Set(
+    logs
+      .filter(l => l.date !== today && l[key]?.sets != null && l[key]?.reps != null)
+      .map(l => l.date)
+  )].sort().reverse();
+
+  if (!pastDates.length) return null;
+
+  const lastDate = pastDates[0];
+  const dayLogs = logs.filter(l => l.date === lastDate && l[key]?.sets != null && l[key]?.reps != null);
+  const totalSets = dayLogs.reduce((sum, l) => sum + (l[key].sets || 1), 0);
+  const repsPerSet = dayLogs[0]?.[key]?.reps;
+  if (!repsPerSet) return null;
+
+  const lastD = new Date(lastDate);
+  const todayD = new Date(today);
+  const newWeek = getISOWeek(todayD) !== getISOWeek(lastD) || todayD.getFullYear() !== lastD.getFullYear();
+
+  return { sets: totalSets, repsPerSet: newWeek ? repsPerSet + 1 : repsPerSet, isProgression: newWeek };
+}
+
 // ─── LOG VIEW ─────────────────────────────────────────────────────────────────
 function renderCards() {
   const container = document.getElementById('exerciseCards');
@@ -453,6 +486,11 @@ function renderCards() {
       ? `<span class="ex-today">${todaySets} set${todaySets !== 1 ? 's' : ''} · ${todayReps} reps</span>`
       : '';
 
+    const target = getLastSessionTarget(ex.key);
+    const targetHtml = target
+      ? `<div class="ex-target-row${target.isProgression ? ' progression' : ''}">Target: ${target.sets}×${target.repsPerSet}${target.isProgression ? ' ↑' : ''}</div>`
+      : '';
+
     const div = document.createElement('div');
     div.className = 'ex-card';
     div.id = 'card-' + ex.key;
@@ -461,18 +499,13 @@ function renderCards() {
         <span class="ex-name">${ex.label}</span>
         ${totalsHtml}
       </div>
+      ${targetHtml}
       <div class="variant-pills">
         ${ex.variants.map(v =>
           `<button class="pill${s.variant === v ? ' active' : ''}" onclick="setVariant('${ex.key}','${esc(v)}')">${h(v)}</button>`
         ).join('')}
       </div>
       <div class="inputs-row">
-        <div class="input-group">
-          <span class="input-lbl">Sets</span>
-          <input class="num-input" type="number" inputmode="numeric" min="1" placeholder="1"
-            id="sets-${ex.key}" value="${s.sets}"
-            oninput="state['${ex.key}'].sets=this.value">
-        </div>
         <div class="input-group">
           <span class="input-lbl">Reps</span>
           <input class="num-input" type="number" inputmode="numeric" min="1" placeholder="—"
@@ -495,9 +528,7 @@ function setVariant(key, variant) {
 
 function syncInputsToState() {
   EXERCISES.forEach(ex => {
-    const s = document.getElementById('sets-' + ex.key);
     const r = document.getElementById('reps-' + ex.key);
-    if (s) state[ex.key].sets = s.value;
     if (r) state[ex.key].reps = r.value;
   });
 }
