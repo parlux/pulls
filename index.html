@@ -91,6 +91,7 @@
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
     text-transform: uppercase; color: var(--green);
   }
+  .ex-last-set { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
   .variant-pills {
     display: flex; gap: 6px; padding: 0 16px 12px;
@@ -486,6 +487,9 @@ function renderCards() {
       ? `<span class="ex-today">${todaySets} set${todaySets !== 1 ? 's' : ''} · ${todayReps} reps</span>`
       : '';
 
+    const lastSet = timeSinceLastSet(ex.key);
+    const lastSetHtml = lastSet ? `<div class="ex-last-set">${lastSet}</div>` : '';
+
     const target = getLastSessionTarget(ex.key);
     const targetHtml = target
       ? `<div class="ex-target-row${target.isProgression ? ' progression' : ''}">Target: ${target.sets}×${target.repsPerSet}${target.isProgression ? ' ↑' : ''}</div>`
@@ -496,7 +500,10 @@ function renderCards() {
     div.id = 'card-' + ex.key;
     div.innerHTML = `
       <div class="ex-header">
-        <span class="ex-name">${ex.label}</span>
+        <div>
+          <span class="ex-name">${ex.label}</span>
+          ${lastSetHtml}
+        </div>
         ${totalsHtml}
       </div>
       ${targetHtml}
@@ -821,6 +828,17 @@ function renderCharts() {
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+function timeSinceLastSet(key) {
+  const entry = logs.find(l => l[key].reps != null);
+  if (!entry || !entry.timestamp) return null;
+  const secs = Math.floor((Date.now() - new Date(entry.timestamp).getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 function localDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
