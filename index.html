@@ -111,8 +111,25 @@
   .pill.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
 
   .inputs-row { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 16px 10px; }
-  .ex-target-row { padding: 0 16px 8px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; }
+  .ex-target-row { padding: 0 16px 4px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; }
   .ex-target-row.progression { color: var(--green); }
+
+  .ex-progress-track {
+    margin: 0 16px 10px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .ex-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 0.25s ease, background-color 0.25s ease;
+  }
+  .ex-progress-fill.complete {
+    background: var(--green);
+  }
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
   .num-input {
@@ -472,6 +489,22 @@ function getLastSessionTarget(key) {
   return { sets: totalSets, repsPerSet: newWeek ? repsPerSet + 1 : repsPerSet, isProgression: newWeek };
 }
 
+function renderTargetRow(target, todaySets) {
+  const pct = Math.min(100, Math.round((todaySets / target.sets) * 100));
+  const complete = todaySets >= target.sets;
+  const countText = todaySets > 0
+    ? ` · ${todaySets} of ${target.sets} set${target.sets !== 1 ? 's' : ''}`
+    : '';
+
+  return `
+    <div class="ex-target-row${target.isProgression ? ' progression' : ''}">
+      Target: ${target.sets}×${target.repsPerSet}${target.isProgression ? ' ↑' : ''}${countText}
+    </div>
+    <div class="ex-progress-track">
+      <div class="ex-progress-fill${complete ? ' complete' : ''}" style="width:${pct}%"></div>
+    </div>`;
+}
+
 // ─── LOG VIEW ─────────────────────────────────────────────────────────────────
 function renderCards() {
   const container = document.getElementById('exerciseCards');
@@ -497,9 +530,7 @@ function renderCards() {
     const lastSetHtml = lastSet ? `<div class="ex-last-set">${lastSet}</div>` : '';
 
     const target = getLastSessionTarget(ex.key);
-    const targetHtml = target
-      ? `<div class="ex-target-row${target.isProgression ? ' progression' : ''}">Target: ${target.sets}×${target.repsPerSet}${target.isProgression ? ' ↑' : ''}</div>`
-      : '';
+    const targetHtml = target ? renderTargetRow(target, todaySets) : '';
 
     const div = document.createElement('div');
     div.className = 'ex-card';
