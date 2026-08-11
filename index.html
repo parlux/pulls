@@ -156,6 +156,7 @@
   .section-title {
     font-family: var(--font-display); font-size: 22px; letter-spacing: 1px;
     margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
   }
 
   .history-list { display: flex; flex-direction: column; gap: 8px; }
@@ -190,6 +191,14 @@
     font-family: var(--font-body);
   }
   .hist-del:hover { color: var(--accent2); }
+
+  .export-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer;
+    font-family: var(--font-body); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; transition: all 0.12s;
+  }
+  .export-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ─── PROGRESS VIEW ─── */
   .stat-strip {
@@ -276,7 +285,10 @@
 <!-- ─── HISTORY VIEW ─── -->
 <div class="view" id="viewHistory">
   <div class="container">
-    <div class="section-title">HISTORY</div>
+    <div class="section-title">
+      <span>HISTORY</span>
+      <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+    </div>
     <div class="history-list" id="historyList"></div>
   </div>
 </div>
@@ -862,6 +874,48 @@ function renderCharts() {
       },
     });
   });
+}
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+function csvField(v) {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportCSV() {
+  const header = ['Date', 'Time', 'Exercise', 'Variant', 'Sets', 'Reps', 'Total Reps', 'Notes'];
+  const rows = [header];
+
+  logs.forEach(log => {
+    const time = log.timestamp
+      ? new Date(log.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : '';
+    EXERCISES.forEach(ex => {
+      const d = log[ex.key];
+      if (d.sets == null && d.reps == null) return;
+      rows.push([
+        log.date,
+        time,
+        ex.label,
+        d.variant || '',
+        d.sets ?? '',
+        d.reps ?? '',
+        (d.sets != null && d.reps != null) ? d.sets * d.reps : '',
+        log.notes || '',
+      ]);
+    });
+  });
+
+  const csv = rows.map(row => row.map(csvField).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `greyskull-export-${localDateKey(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
