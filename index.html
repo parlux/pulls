@@ -434,7 +434,10 @@ function setSync(status, label) {
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
+let loading = false;
 async function load() {
+  if (loading) return;
+  loading = true;
   setSync('syncing', 'Syncing...');
   try {
     logs = await fetchAllLogs();
@@ -445,6 +448,8 @@ async function load() {
     setSync('err', 'Offline (cached)');
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) logs = JSON.parse(cached);
+  } finally {
+    loading = false;
   }
 
   // Pre-fill each exercise variant from its most recent log entry
@@ -457,8 +462,10 @@ async function load() {
   renderHistory();
 
   const overlay = document.getElementById('loadingOverlay');
-  overlay.classList.add('hidden');
-  setTimeout(() => overlay.remove(), 400);
+  if (overlay) {
+    overlay.classList.add('hidden');
+    setTimeout(() => overlay.remove(), 400);
+  }
 }
 
 // ─── VIEW SWITCHING ───────────────────────────────────────────────────────────
@@ -956,6 +963,13 @@ function esc(v) { return String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 })();
 
 load();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') load();
+});
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) load();
+});
 </script>
 </body>
 </html>
