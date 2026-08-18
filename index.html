@@ -215,6 +215,9 @@
   .stat-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
 
   .week-strip { display: flex; gap: 6px; margin-bottom: 24px; }
+
+  .range-strip { display: flex; gap: 6px; margin-bottom: 20px; }
+  .range-strip .pill { flex: 1; text-align: center; }
   .week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; }
   .week-dot { width: 100%; max-width: 36px; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface); }
   .week-dot.trained { background: var(--accent); border-color: var(--accent); }
@@ -312,6 +315,13 @@
     </div>
 
     <div class="week-strip" id="weekStrip"></div>
+
+    <div class="range-strip" id="rangeStrip">
+      <button class="pill" data-range="1w" onclick="setChartRange('1w')">1W</button>
+      <button class="pill active" data-range="1m" onclick="setChartRange('1m')">1M</button>
+      <button class="pill" data-range="3m" onclick="setChartRange('3m')">3M</button>
+      <button class="pill" data-range="all" onclick="setChartRange('all')">All</button>
+    </div>
     <div id="chartSections"></div>
   </div>
 </div>
@@ -351,6 +361,7 @@ const EXERCISES = [
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let logs = [];
 let charts = {};
+let chartRange = '1m';
 
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
@@ -779,6 +790,12 @@ function renderWeek() {
   }
 }
 
+function setChartRange(range) {
+  chartRange = range;
+  document.querySelectorAll('#rangeStrip .pill').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  renderCharts();
+}
+
 function renderCharts() {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
@@ -786,7 +803,16 @@ function renderCharts() {
   const sections = document.getElementById('chartSections');
   sections.innerHTML = '';
 
-  const cutoff = localDateKey(addDays(new Date(), -60));
+  const todayDate = new Date();
+  let cutoffDate;
+  if (chartRange === 'all') {
+    const earliest = logs.reduce((min, l) => (l.date && (!min || l.date < min)) ? l.date : min, null);
+    cutoffDate = earliest ? new Date(earliest + 'T00:00:00') : addDays(todayDate, -30);
+  } else {
+    const days = { '1w': 7, '1m': 30, '3m': 90 }[chartRange] || 30;
+    cutoffDate = addDays(todayDate, -(days - 1));
+  }
+  const cutoff = localDateKey(cutoffDate);
 
   EXERCISES.forEach(ex => {
     // Aggregate by date: sum sets×reps across all records per day
@@ -800,7 +826,14 @@ function renderCharts() {
         byDate[d].sets += l[ex.key].sets;
         byDate[d].variant = l[ex.key].variant; // use most recent variant for label
       });
-    const pts = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+    const hasData = Object.keys(byDate).length > 0;
+
+    // Fill every day in range so missed days show as 0 instead of being skipped
+    const pts = [];
+    for (let d = new Date(cutoffDate); d <= todayDate; d = addDays(d, 1)) {
+      const ds = localDateKey(d);
+      pts.push(byDate[ds] || { date: ds, total: 0, sets: 0, variant: '' });
+    }
 
     const currentVar = logs.find(l => l[ex.key]?.variant)?.[ex.key]?.variant;
 
@@ -811,13 +844,13 @@ function renderCharts() {
         <span class="chart-title">${ex.label}</span>
         ${currentVar ? `<span class="variant-badge">${h(currentVar)}</span>` : ''}
       </div>
-      ${pts.length === 0
+      ${!hasData
         ? `<div class="chart-empty">No data yet</div>`
         : `<div class="chart-wrap"><canvas id="chart-${ex.key}"></canvas></div>`
       }`;
     sections.appendChild(block);
 
-    if (pts.length === 0) return;
+    if (!hasData) return;
 
     const ctx = document.getElementById('chart-' + ex.key).getContext('2d');
     charts[ex.key] = new Chart(ctx, {
@@ -829,7 +862,7 @@ function renderCharts() {
           borderColor: ex.color,
           backgroundColor: ex.color + '20',
           pointBackgroundColor: ex.color,
-          pointRadius: 4,
+          pointRadius: pts.length > 45 ? 0 : 4,
           pointHoverRadius: 6,
           borderWidth: 2,
           fill: true,
@@ -850,6 +883,7 @@ function renderCharts() {
             callbacks: {
               label: item => {
                 const p = pts[item.dataIndex];
+                if (p.sets === 0) return 'Missed day';
                 return `${p.sets} set${p.sets !== 1 ? 's' : ''} · ${p.total} reps · ${p.variant}`;
               },
             },
