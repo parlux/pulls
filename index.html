@@ -477,14 +477,7 @@ function showView(name) {
   if (name === 'Progress') renderProgress();
 }
 
-// ─── PROGRESSION ──────────────────────────────────────────────────────────────
-function getISOWeek(d) {
-  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  dt.setUTCDate(dt.getUTCDate() + 4 - (dt.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
-  return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
-}
-
+// ─── TARGET ───────────────────────────────────────────────────────────────────
 function getLastSessionTarget(key) {
   const today = localDateKey(new Date());
   const pastDates = [...new Set(
@@ -501,11 +494,7 @@ function getLastSessionTarget(key) {
   const repsPerSet = dayLogs[0]?.[key]?.reps;
   if (!repsPerSet) return null;
 
-  const lastD = new Date(lastDate);
-  const todayD = new Date(today);
-  const newWeek = getISOWeek(todayD) !== getISOWeek(lastD) || todayD.getFullYear() !== lastD.getFullYear();
-
-  return { sets: totalSets, repsPerSet: newWeek ? repsPerSet + 1 : repsPerSet, isProgression: newWeek };
+  return { sets: totalSets, repsPerSet };
 }
 
 function renderTargetRow(target, todaySets) {
@@ -516,8 +505,8 @@ function renderTargetRow(target, todaySets) {
     : '';
 
   return `
-    <div class="ex-target-row${target.isProgression ? ' progression' : ''}">
-      Target: ${target.sets}×${target.repsPerSet}${target.isProgression ? ' ↑' : ''}${countText}
+    <div class="ex-target-row">
+      Target: ${target.sets}×${target.repsPerSet}${countText}
     </div>
     <div class="ex-progress-track">
       <div class="ex-progress-fill${complete ? ' complete' : ''}" style="width:${pct}%"></div>
