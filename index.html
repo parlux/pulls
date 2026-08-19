@@ -384,12 +384,12 @@ async function atFetch(path = '', opts = {}) {
   return res.json();
 }
 
-async function fetchAllLogs() {
+async function fetchAllLogs(signal) {
   let records = [], offset = null;
   do {
     const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
     if (offset) p.set('offset', offset);
-    const data = await atFetch('?' + p);
+    const data = await atFetch('?' + p, { signal });
     records = records.concat(data.records);
     offset = data.offset || null;
   } while (offset);
@@ -450,22 +450,25 @@ function setSync(status, label) {
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-let loading = false;
+let loadController = null;
 async function load() {
-  if (loading) return;
-  loading = true;
+  if (loadController) loadController.abort();
+  const controller = new AbortController();
+  loadController = controller;
   setSync('syncing', 'Syncing...');
   try {
-    logs = await fetchAllLogs();
+    logs = await fetchAllLogs(controller.signal);
+    if (controller.signal.aborted) return;
     setSync('ok', 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
   } catch (e) {
+    if (controller.signal.aborted) return;
     console.warn('Airtable unavailable, using cache:', e);
     setSync('err', 'Offline (cached)');
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) logs = JSON.parse(cached);
   } finally {
-    loading = false;
+    if (loadController === controller) loadController = null;
   }
 
   // Pre-fill each exercise variant from its most recent log entry
@@ -1004,6 +1007,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pageshow', (e) => {
   if (e.persisted) load();
 });
+window.addEventListener('online', () => load());
 </script>
 </body>
 </html>
