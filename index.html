@@ -83,6 +83,11 @@
   .ex-card {
     background: var(--surface); border: 1.5px solid var(--border);
     border-radius: 10px; margin-bottom: 10px; overflow: hidden;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .ex-card.ready {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 12px -2px var(--accent);
   }
 
   .ex-header {
@@ -552,7 +557,7 @@ function renderCards() {
     const targetHtml = target ? renderTargetRow(target, todaySets) : '';
 
     const div = document.createElement('div');
-    div.className = 'ex-card';
+    div.className = 'ex-card' + (isReady(ex.key) ? ' ready' : '');
     div.id = 'card-' + ex.key;
     div.innerHTML = `
       <div class="ex-header">
@@ -949,6 +954,12 @@ function exportCSV() {
 }
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+const READY_AFTER_MS = 60 * 60 * 1000;
+function isReady(key) {
+  const entry = logs.find(l => l[key].reps != null);
+  if (!entry || !entry.timestamp) return true;
+  return Date.now() - new Date(entry.timestamp).getTime() >= READY_AFTER_MS;
+}
 function timeSinceLastSet(key) {
   const entry = logs.find(l => l[key].reps != null);
   if (!entry || !entry.timestamp) return null;
