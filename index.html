@@ -89,6 +89,10 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent), 0 0 12px -2px var(--accent);
   }
+  .ex-card.completed {
+    border-color: var(--green);
+    box-shadow: 0 0 0 1px var(--green), 0 0 12px -2px var(--green);
+  }
 
   .ex-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -558,9 +562,10 @@ function renderCards() {
 
     const target = getLastSessionTarget(ex.key);
     const targetHtml = target ? renderTargetRow(target, todaySets) : '';
+    const isComplete = target ? todaySets >= target.sets : false;
 
     const div = document.createElement('div');
-    div.className = 'ex-card' + (isReady(ex.key) ? ' ready' : '');
+    div.className = 'ex-card' + (isComplete ? ' completed' : (isReady(ex.key) ? ' ready' : ''));
     div.id = 'card-' + ex.key;
     div.innerHTML = `
       <div class="ex-header">
