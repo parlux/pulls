@@ -246,13 +246,16 @@
   .week-dot-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 
   .chart-block { margin-bottom: 28px; }
-  .chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .chart-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .chart-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
-  .variant-badge {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-    border: 1px solid var(--green); color: var(--green); background: #0d2418;
-    border-radius: 4px; padding: 3px 8px;
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .legend-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 3px 8px 3px 6px;
   }
+  .legend-chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .chart-wrap { position: relative; height: 160px; }
   .chart-empty { height: 80px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; }
 
@@ -828,6 +831,25 @@ function setChartRange(range) {
   renderCharts();
 }
 
+// ─── VARIANT COLORS (Progress charts) ─────────────────────────────────────────
+// Keyed by a variant's position within its exercise's own `variants` array —
+// identity only, not a difficulty ordering (e.g. pushup's array isn't a strict ladder).
+const VARIANT_PALETTE = ['#5b8def', '#e8a020', '#3ab06a', '#d63a2f', '#a35bef', '#2fb8c4'];
+const VARIANT_MISSED_COLOR = '#45454c';
+
+function variantColor(ex, variant) {
+  if (!variant) return VARIANT_MISSED_COLOR;
+  const idx = ex.variants.indexOf(variant);
+  return VARIANT_PALETTE[(idx < 0 ? 0 : idx) % VARIANT_PALETTE.length];
+}
+
+function segmentColor(ex, pts, ctx) {
+  const p0 = pts[ctx.p0DataIndex];
+  const p1 = pts[ctx.p1DataIndex];
+  if (!p0.variant || !p1.variant) return VARIANT_MISSED_COLOR;
+  return variantColor(ex, p1.variant);
+}
+
 function renderCharts() {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
@@ -867,14 +889,17 @@ function renderCharts() {
       pts.push(byDate[ds] || { date: ds, total: 0, sets: 0, variant: '' });
     }
 
-    const currentVar = logs.find(l => l[ex.key]?.variant)?.[ex.key]?.variant;
+    const variantsInRange = ex.variants.filter(v => Object.values(byDate).some(d => d.variant === v));
+    const legendHtml = variantsInRange.map(v =>
+      `<span class="legend-chip"><span class="dot" style="background:${variantColor(ex, v)}"></span>${h(v)}</span>`
+    ).join('');
 
     const block = document.createElement('div');
     block.className = 'chart-block';
     block.innerHTML = `
       <div class="chart-head">
         <span class="chart-title">${ex.label}</span>
-        ${currentVar ? `<span class="variant-badge">${h(currentVar)}</span>` : ''}
+        <div class="chart-legend">${legendHtml}</div>
       </div>
       ${!hasData
         ? `<div class="chart-empty">No data yet</div>`
@@ -893,10 +918,13 @@ function renderCharts() {
           data: pts.map(p => p.total),
           borderColor: ex.color,
           backgroundColor: ex.color + '20',
-          pointBackgroundColor: ex.color,
+          pointBackgroundColor: pts.map(p => variantColor(ex, p.variant)),
+          pointBorderColor: pts.map(p => variantColor(ex, p.variant)),
+          pointStyle: pts.map(p => p.variant ? 'circle' : 'crossRot'),
           pointRadius: pts.length > 45 ? 0 : 4,
           pointHoverRadius: 6,
           borderWidth: 2,
+          segment: { borderColor: ctx => segmentColor(ex, pts, ctx) },
           fill: true,
           tension: 0.3,
         }],
@@ -912,6 +940,7 @@ function renderCharts() {
             borderWidth: 1,
             titleColor: '#e8e6e0',
             bodyColor: '#9b98a0',
+            usePointStyle: true,
             callbacks: {
               label: item => {
                 const p = pts[item.dataIndex];
