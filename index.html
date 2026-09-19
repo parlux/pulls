@@ -411,7 +411,7 @@
 
     <div class="input-group" style="margin-bottom:14px">
       <span class="input-lbl">Soreness (optional)</span>
-      <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness next morning?"></textarea>
+      <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness this morning?"></textarea>
     </div>
 
     <div class="card-footer" style="padding:0 0 20px">
@@ -623,6 +623,13 @@ async function createCalfLog(entry) {
     body: JSON.stringify({ records: [{ fields: buildCalfFields(entry) }] }),
   }, AT_CALF_URL);
   return data.records[0].id;
+}
+
+async function updateCalfLog(entry) {
+  await atFetch('', {
+    method: 'PATCH',
+    body: JSON.stringify({ records: [{ id: entry.id, fields: buildCalfFields(entry) }] }),
+  }, AT_CALF_URL);
 }
 
 async function deleteCalfLog(id) { await atFetch('/' + id, { method: 'DELETE' }, AT_CALF_URL); }
@@ -1159,7 +1166,24 @@ function updateCalfDayTypeUI(dateStr) {
   badge.className = 'calf-daytype-badge ' + (type === 'A' ? 'a-day' : type === 'B' ? 'b-day' : 'off');
 
   resetCalfSetsState(type);
+  loadCalfSetsFromExisting(dateStr);
   renderCalfExerciseSections(type);
+
+  const existing = calfLogs.find(l => l.date === dateStr);
+  document.getElementById('calfPriorActivity').value = existing?.priorActivity || '';
+  document.getElementById('calfSoreness').value = existing?.soreness || '';
+}
+
+function loadCalfSetsFromExisting(dateStr) {
+  const existing = calfLogs.find(l => l.date === dateStr);
+  if (!existing) return;
+  const lastAssist = (calfLogs.find(l => l.assist) || {}).assist || 'Moderate';
+
+  if (existing.heelRaiseLeft?.length) calfSetsState.heelRaise.left = existing.heelRaiseLeft.map(s => ({ reps: String(s.reps) }));
+  if (existing.heelRaiseRight?.length) calfSetsState.heelRaise.right = existing.heelRaiseRight.map(s => ({ reps: String(s.reps), assist: s.assist || lastAssist }));
+  if (existing.bigToeLeft?.length) calfSetsState.bigToe.left = existing.bigToeLeft.map(s => ({ seconds: String(s.seconds) }));
+  if (existing.bigToeRight?.length) calfSetsState.bigToe.right = existing.bigToeRight.map(s => ({ seconds: String(s.seconds) }));
+  if (existing.seatedCalfRaise?.length) calfSetsState.seated = existing.seatedCalfRaise.map(s => ({ reps: String(s.reps), weight: String(s.weight) }));
 }
 
 function resetCalfSetsState(type) {
@@ -1321,8 +1345,10 @@ async function logCalfEntry() {
   const assistAvg = assistVals.length ? assistVals.reduce((a, b) => a + b, 0) / assistVals.length : null;
   const assist = assistAvg ? ASSIST_LEVELS[Math.round(assistAvg) - 1] : '';
 
+  const existing = calfLogs.find(l => l.date === dateStr);
+
   const entry = {
-    timestamp: new Date().toISOString(),
+    timestamp: existing ? existing.timestamp : new Date().toISOString(),
     date: dateStr,
     dayType: CALF_DAYTYPE_LABEL[type],
     assist,
@@ -1338,26 +1364,32 @@ async function logCalfEntry() {
   setSync('syncing', 'Saving...');
 
   try {
-    entry.id = await createCalfLog(entry);
+    if (existing && !existing.id.startsWith('local-')) {
+      entry.id = existing.id;
+      await updateCalfLog(entry);
+      calfLogs = calfLogs.filter(l => l.id !== existing.id);
+    } else if (existing) {
+      calfLogs = calfLogs.filter(l => l.id !== existing.id);
+      entry.id = await createCalfLog(entry);
+    } else {
+      entry.id = await createCalfLog(entry);
+    }
     calfLogs.unshift(entry);
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     setSync('ok', 'Saved ✓');
   } catch (e) {
     console.error(e);
-    entry.id = localId();
+    if (!entry.id) entry.id = existing ? existing.id : localId();
+    calfLogs = calfLogs.filter(l => l.id !== entry.id);
     calfLogs.unshift(entry);
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     setSync('err', 'Saved locally');
     alert('Airtable unavailable — kept locally.\n\n' + e.message);
   }
 
-  document.getElementById('calfPriorActivity').value = '';
-  document.getElementById('calfSoreness').value = '';
   btn.disabled = false;
   btn.textContent = 'LOG';
 
-  resetCalfSetsState(type);
-  renderCalfExerciseSections(type);
   renderCalfWeek();
   renderCalfChart();
   renderCalfHistory();
