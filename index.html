@@ -284,6 +284,18 @@
   .hist-calf-row { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
   .hist-calf-assist { font-weight: 700; color: var(--text); }
 
+  .calf-ex-block { margin-bottom: 20px; }
+  .calf-ex-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 8px; }
+  .calf-ex-side-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 10px 0 6px; }
+  .set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .set-row .input-group { flex: 1; min-width: 80px; }
+  .set-row .num-input { font-size: 22px; padding: 6px 10px; }
+  .set-row-assist { flex-basis: 100%; padding: 0; margin: 0; }
+  .set-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 4px 8px; line-height: 1; font-family: var(--font-body); }
+  .set-remove:hover { color: var(--accent2); }
+  .add-set-btn { width: 100%; margin-bottom: 10px; }
+  .calf-off-note { color: var(--muted); font-size: 13px; padding: 4px 0 14px; }
+
   /* ─── LOADING ─── */
   .loading-overlay {
     position: fixed; inset: 0; background: var(--bg);
@@ -390,10 +402,7 @@
     </div>
     <div class="calf-daytype-badge" id="calfDayTypeBadge"></div>
 
-    <div id="calfAssistGroup" style="margin-bottom:14px">
-      <div class="input-lbl" style="margin-bottom:6px">Right-leg assist</div>
-      <div class="variant-pills" id="calfAssistPills"></div>
-    </div>
+    <div id="calfExerciseSections"></div>
 
     <div class="input-group" style="margin-bottom:14px">
       <span class="input-lbl">Prior day's activity</span>
@@ -417,7 +426,7 @@
       <div class="chart-wrap"><canvas id="calfChart"></canvas></div>
     </div>
 
-    <div class="section-title"><span>CALF HISTORY</span></div>
+    <div class="section-title"><span>CALF HISTORY</span><button class="export-btn" onclick="exportCalfCSV()">Export CSV</button></div>
     <div class="history-list" id="calfHistoryList"></div>
   </div>
 </div>
@@ -477,7 +486,7 @@ let charts = {};
 let chartRange = '1m';
 let calfLogs = [];
 let calfCharts = {};
-let calfFormState = { assist: 'Moderate' };
+let calfSetsState = { heelRaise: { left: [], right: [] }, bigToe: { left: [], right: [] }, seated: [] };
 
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
@@ -567,6 +576,11 @@ async function fetchAllCalfLogs(signal) {
   return records.map(normalizeCalfRecord);
 }
 
+function parseSetJSON(v) {
+  if (!v) return [];
+  try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch (e) { return []; }
+}
+
 function normalizeCalfRecord(r) {
   const f = r.fields;
   return {
@@ -575,8 +589,14 @@ function normalizeCalfRecord(r) {
     date: f.Date || '',
     dayType: f.DayType || '',
     assist: f.RightAssist || '',
+    assistAvg: f.RightAssistAvg ?? null,
     priorActivity: f.PriorActivity || '',
     soreness: f.Soreness || '',
+    heelRaiseLeft:   parseSetJSON(f.HeelRaiseLeft_Sets),
+    heelRaiseRight:  parseSetJSON(f.HeelRaiseRight_Sets),
+    bigToeLeft:      parseSetJSON(f.BigToeLeft_Sets),
+    bigToeRight:     parseSetJSON(f.BigToeRight_Sets),
+    seatedCalfRaise: parseSetJSON(f.SeatedCalfRaise_Sets),
   };
 }
 
@@ -586,8 +606,14 @@ function buildCalfFields(entry) {
     Date: entry.date,
     DayType: entry.dayType || null,
     RightAssist: entry.assist || null,
+    RightAssistAvg: entry.assistAvg ?? null,
     PriorActivity: entry.priorActivity || '',
     Soreness: entry.soreness || '',
+    HeelRaiseLeft_Sets:   entry.heelRaiseLeft?.length   ? JSON.stringify(entry.heelRaiseLeft)   : null,
+    HeelRaiseRight_Sets:  entry.heelRaiseRight?.length  ? JSON.stringify(entry.heelRaiseRight)  : null,
+    BigToeLeft_Sets:      entry.bigToeLeft?.length      ? JSON.stringify(entry.bigToeLeft)      : null,
+    BigToeRight_Sets:     entry.bigToeRight?.length     ? JSON.stringify(entry.bigToeRight)     : null,
+    SeatedCalfRaise_Sets: entry.seatedCalfRaise?.length ? JSON.stringify(entry.seatedCalfRaise) : null,
   };
 }
 
@@ -641,10 +667,6 @@ async function load() {
     const recent = logs.find(l => l[ex.key]?.variant);
     if (recent) state[ex.key].variant = recent[ex.key].variant;
   });
-
-  // Pre-fill assist-level pill from the most recent A-day entry
-  const recentAssist = calfLogs.find(l => l.assist);
-  if (recentAssist) calfFormState.assist = recentAssist.assist;
 
   renderCards();
   renderHistory();
@@ -1136,28 +1158,176 @@ function updateCalfDayTypeUI(dateStr) {
   badge.textContent = `${dow} · ${CALF_DAYTYPE_LABEL[type]}`;
   badge.className = 'calf-daytype-badge ' + (type === 'A' ? 'a-day' : type === 'B' ? 'b-day' : 'off');
 
-  const group = document.getElementById('calfAssistGroup');
-  group.style.display = type === 'A' ? '' : 'none';
-  if (type === 'A') renderCalfAssistPills();
+  resetCalfSetsState(type);
+  renderCalfExerciseSections(type);
 }
 
-function renderCalfAssistPills() {
-  const wrap = document.getElementById('calfAssistPills');
-  wrap.innerHTML = ASSIST_LEVELS.map(v =>
-    `<button class="pill${calfFormState.assist === v ? ' active' : ''}" onclick="setCalfAssist('${esc(v)}')">${h(v)}</button>`
-  ).join('');
+function resetCalfSetsState(type) {
+  const lastAssist = (calfLogs.find(l => l.assist) || {}).assist || 'Moderate';
+  const recentB = calfLogs.find(l => (l.seatedCalfRaise || []).length);
+  const lastWeight = recentB ? recentB.seatedCalfRaise[recentB.seatedCalfRaise.length - 1].weight : 10;
+
+  if (type === 'A') {
+    calfSetsState.heelRaise.left  = [{ reps: '' }, { reps: '' }, { reps: '' }];
+    calfSetsState.heelRaise.right = [{ reps: '', assist: lastAssist }, { reps: '', assist: lastAssist }];
+    calfSetsState.bigToe.left     = [{ seconds: '30' }, { seconds: '30' }, { seconds: '30' }];
+    calfSetsState.bigToe.right    = [{ seconds: '30' }, { seconds: '30' }, { seconds: '30' }];
+    calfSetsState.seated = [];
+  } else if (type === 'B') {
+    calfSetsState.seated = [{ reps: '', weight: String(lastWeight) }, { reps: '', weight: String(lastWeight) }];
+    calfSetsState.heelRaise.left = []; calfSetsState.heelRaise.right = [];
+    calfSetsState.bigToe.left = []; calfSetsState.bigToe.right = [];
+  } else {
+    calfSetsState.heelRaise.left = []; calfSetsState.heelRaise.right = [];
+    calfSetsState.bigToe.left = []; calfSetsState.bigToe.right = [];
+    calfSetsState.seated = [];
+  }
 }
 
-function setCalfAssist(v) { calfFormState.assist = v; renderCalfAssistPills(); }
+function renderCalfExerciseSections(type) {
+  const wrap = document.getElementById('calfExerciseSections');
+  if (type === 'A') {
+    wrap.innerHTML = `
+      <div class="calf-ex-block">
+        <div class="calf-ex-title">Two-up, one-down heel raise</div>
+        <div class="calf-ex-side-lbl">Left</div>
+        <div id="calfRows-heelRaise-left"></div>
+        <button class="pill add-set-btn" onclick="addCalfSet('heelRaise','left')">+ Add set</button>
+        <div class="calf-ex-side-lbl">Right</div>
+        <div id="calfRows-heelRaise-right"></div>
+        <button class="pill add-set-btn" onclick="addCalfSet('heelRaise','right')">+ Add set</button>
+      </div>
+      <div class="calf-ex-block">
+        <div class="calf-ex-title">Big-toe press</div>
+        <div class="calf-ex-side-lbl">Left</div>
+        <div id="calfRows-bigToe-left"></div>
+        <button class="pill add-set-btn" onclick="addCalfSet('bigToe','left')">+ Add set</button>
+        <div class="calf-ex-side-lbl">Right</div>
+        <div id="calfRows-bigToe-right"></div>
+        <button class="pill add-set-btn" onclick="addCalfSet('bigToe','right')">+ Add set</button>
+      </div>`;
+    renderSetRows('heelRaise', 'left');
+    renderSetRows('heelRaise', 'right');
+    renderSetRows('bigToe', 'left');
+    renderSetRows('bigToe', 'right');
+  } else if (type === 'B') {
+    wrap.innerHTML = `
+      <div class="calf-ex-block">
+        <div class="calf-ex-title">Seated calf raise</div>
+        <div id="calfRows-seated"></div>
+        <button class="pill add-set-btn" onclick="addCalfSet('seated')">+ Add set</button>
+      </div>`;
+    renderSetRows('seated');
+  } else {
+    wrap.innerHTML = `<div class="calf-off-note">Off day — nothing scheduled.</div>`;
+  }
+}
+
+function renderSetRows(exercise, side) {
+  const containerId = side ? `calfRows-${exercise}-${side}` : `calfRows-${exercise}`;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const rows = exercise === 'seated' ? calfSetsState.seated : calfSetsState[exercise][side];
+
+  container.innerHTML = rows.map((row, idx) => {
+    const removeBtn = `<button class="set-remove" onclick="removeCalfSet('${exercise}','${side || ''}',${idx})" title="Remove set">×</button>`;
+
+    if (exercise === 'heelRaise') {
+      const assistPills = side === 'right' ? `
+        <div class="variant-pills set-row-assist">
+          ${ASSIST_LEVELS.map(v => `<button class="pill${row.assist === v ? ' active' : ''}" onclick="setCalfSetAssist(${idx},'${esc(v)}')">${h(v)}</button>`).join('')}
+        </div>` : '';
+      return `
+        <div class="set-row">
+          <div class="input-group">
+            <span class="input-lbl">Set ${idx + 1} reps</span>
+            <input class="num-input" type="number" inputmode="numeric" min="0" placeholder="—" value="${h(row.reps)}"
+              oninput="calfSetsState.heelRaise.${side}[${idx}].reps=this.value">
+          </div>
+          ${removeBtn}
+          ${assistPills}
+        </div>`;
+    }
+
+    if (exercise === 'bigToe') {
+      return `
+        <div class="set-row">
+          <div class="input-group">
+            <span class="input-lbl">Set ${idx + 1} seconds</span>
+            <input class="num-input" type="number" inputmode="numeric" min="0" placeholder="—" value="${h(row.seconds)}"
+              oninput="calfSetsState.bigToe.${side}[${idx}].seconds=this.value">
+          </div>
+          ${removeBtn}
+        </div>`;
+    }
+
+    return `
+      <div class="set-row">
+        <div class="input-group">
+          <span class="input-lbl">Set ${idx + 1} reps</span>
+          <input class="num-input" type="number" inputmode="numeric" min="0" placeholder="—" value="${h(row.reps)}"
+            oninput="calfSetsState.seated[${idx}].reps=this.value">
+        </div>
+        <div class="input-group">
+          <span class="input-lbl">Weight kg</span>
+          <input class="num-input" type="number" inputmode="decimal" min="0" step="0.5" placeholder="—" value="${h(row.weight)}"
+            oninput="calfSetsState.seated[${idx}].weight=this.value">
+        </div>
+        ${removeBtn}
+      </div>`;
+  }).join('');
+}
+
+function addCalfSet(exercise, side) {
+  if (exercise === 'seated') {
+    const last = calfSetsState.seated[calfSetsState.seated.length - 1];
+    calfSetsState.seated.push({ reps: '', weight: last ? last.weight : '10' });
+    renderSetRows('seated');
+  } else if (exercise === 'heelRaise') {
+    calfSetsState.heelRaise[side].push(side === 'right' ? { reps: '', assist: 'Moderate' } : { reps: '' });
+    renderSetRows('heelRaise', side);
+  } else {
+    calfSetsState.bigToe[side].push({ seconds: '30' });
+    renderSetRows('bigToe', side);
+  }
+}
+
+function removeCalfSet(exercise, side, idx) {
+  if (exercise === 'seated') {
+    calfSetsState.seated.splice(idx, 1);
+    renderSetRows('seated');
+  } else {
+    calfSetsState[exercise][side].splice(idx, 1);
+    renderSetRows(exercise, side);
+  }
+}
+
+function setCalfSetAssist(idx, level) {
+  calfSetsState.heelRaise.right[idx].assist = level;
+  renderSetRows('heelRaise', 'right');
+}
 
 async function logCalfEntry() {
   const dateStr = document.getElementById('calfDate').value || localDateKey(new Date());
   const type = calfDayType(dateStr);
+
+  const heelRaiseLeft   = type === 'A' ? calfSetsState.heelRaise.left.map(r => ({ reps: num(r.reps) })).filter(r => r.reps != null) : [];
+  const heelRaiseRight  = type === 'A' ? calfSetsState.heelRaise.right.map(r => ({ reps: num(r.reps), assist: r.assist || null })).filter(r => r.reps != null) : [];
+  const bigToeLeft      = type === 'A' ? calfSetsState.bigToe.left.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
+  const bigToeRight     = type === 'A' ? calfSetsState.bigToe.right.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
+  const seatedCalfRaise = type === 'B' ? calfSetsState.seated.map(r => ({ reps: num(r.reps), weight: num(r.weight) })).filter(r => r.reps != null) : [];
+
+  const assistVals = heelRaiseRight.map(s => ASSIST_VALUE[s.assist]).filter(Boolean);
+  const assistAvg = assistVals.length ? assistVals.reduce((a, b) => a + b, 0) / assistVals.length : null;
+  const assist = assistAvg ? ASSIST_LEVELS[Math.round(assistAvg) - 1] : '';
+
   const entry = {
     timestamp: new Date().toISOString(),
     date: dateStr,
     dayType: CALF_DAYTYPE_LABEL[type],
-    assist: type === 'A' ? calfFormState.assist : '',
+    assist,
+    assistAvg,
+    heelRaiseLeft, heelRaiseRight, bigToeLeft, bigToeRight, seatedCalfRaise,
     priorActivity: document.getElementById('calfPriorActivity').value.trim(),
     soreness: document.getElementById('calfSoreness').value.trim(),
   };
@@ -1186,6 +1356,8 @@ async function logCalfEntry() {
   btn.disabled = false;
   btn.textContent = 'LOG';
 
+  resetCalfSetsState(type);
+  renderCalfExerciseSections(type);
   renderCalfWeek();
   renderCalfChart();
   renderCalfHistory();
@@ -1243,7 +1415,7 @@ function renderCalfChart() {
   if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
 
   const aEntries = calfLogs
-    .filter(l => l.dayType === 'A-day' && l.assist)
+    .filter(l => l.dayType === 'A-day' && (l.assistAvg != null || l.assist))
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -1266,7 +1438,9 @@ function renderCalfChart() {
   for (let d = new Date(first); d <= last; d = addDays(d, 1)) {
     const ds = localDateKey(d);
     if (calfDayType(ds) !== 'A') continue;
-    pts.push(byDate[ds] ? { date: ds, assist: byDate[ds].assist } : { date: ds, assist: null });
+    const e = byDate[ds];
+    const assistAvg = e ? (e.assistAvg != null ? e.assistAvg : (e.assist ? ASSIST_VALUE[e.assist] : null)) : null;
+    pts.push(e ? { date: ds, assist: e.assist, assistAvg, heelRaiseRight: e.heelRaiseRight || [] } : { date: ds, assist: null, assistAvg: null, heelRaiseRight: [] });
   }
 
   const ctx = document.getElementById('calfChart').getContext('2d');
@@ -1275,12 +1449,12 @@ function renderCalfChart() {
     data: {
       labels: pts.map(p => fmtDate(p.date)),
       datasets: [{
-        data: pts.map(p => p.assist ? ASSIST_VALUE[p.assist] : null),
+        data: pts.map(p => p.assistAvg),
         spanGaps: false,
         borderColor: '#5b8def',
         backgroundColor: '#5b8def20',
-        pointStyle: pts.map(p => p.assist ? 'circle' : 'crossRot'),
-        pointBackgroundColor: pts.map(p => p.assist ? '#5b8def' : VARIANT_MISSED_COLOR),
+        pointStyle: pts.map(p => p.assistAvg != null ? 'circle' : 'crossRot'),
+        pointBackgroundColor: pts.map(p => p.assistAvg != null ? '#5b8def' : VARIANT_MISSED_COLOR),
         pointRadius: 4,
         pointHoverRadius: 6,
         borderWidth: 2,
@@ -1302,7 +1476,10 @@ function renderCalfChart() {
           callbacks: {
             label: item => {
               const p = pts[item.dataIndex];
-              return p.assist ? p.assist : 'Not logged';
+              if (p.assistAvg == null) return 'Not logged';
+              const rounded = ASSIST_LEVELS[Math.round(p.assistAvg) - 1] || '';
+              const setsStr = p.heelRaiseRight.map(s => s.assist).filter(Boolean).join(', ');
+              return `${rounded} (avg ${p.assistAvg.toFixed(2)})${setsStr ? ` · sets: ${setsStr}` : ''}`;
             },
           },
         },
@@ -1325,13 +1502,36 @@ function renderCalfChart() {
   });
 }
 
+function renderCalfSetDetail(l) {
+  const lines = [];
+  const hrL = l.heelRaiseLeft || [], hrR = l.heelRaiseRight || [];
+  if (hrL.length || hrR.length) {
+    const lStr = hrL.map(s => s.reps).join(', ');
+    const rStr = hrR.map(s => s.assist ? `${s.reps} (${s.assist})` : `${s.reps}`).join(', ');
+    lines.push(`Heel raise${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
+  }
+  const btL = l.bigToeLeft || [], btR = l.bigToeRight || [];
+  if (btL.length || btR.length) {
+    const lStr = btL.map(s => `${s.seconds}s`).join(', ');
+    const rStr = btR.map(s => `${s.seconds}s`).join(', ');
+    lines.push(`Big-toe press${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
+  }
+  const seated = l.seatedCalfRaise || [];
+  if (seated.length) {
+    lines.push(`Seated calf raise — ${seated.map(s => `${s.reps}×${s.weight}kg`).join(', ')}`);
+  }
+  return lines.map(line => `<span>${h(line)}</span>`).join('');
+}
+
 function renderCalfHistory() {
   const list = document.getElementById('calfHistoryList');
   if (calfLogs.length === 0) {
     list.innerHTML = '<div class="empty"><strong>NO CALF LOGS YET</strong>Log your first session above.</div>';
     return;
   }
-  list.innerHTML = calfLogs.slice(0, 120).map(l => `
+  list.innerHTML = calfLogs.slice(0, 120).map(l => {
+    const setDetail = renderCalfSetDetail(l);
+    return `
     <div class="hist-item">
       <div class="hist-head">
         <span class="hist-date">${fmtDate(l.date)}</span>
@@ -1342,13 +1542,15 @@ function renderCalfHistory() {
         ${l.priorActivity ? `<span>Prior: ${h(l.priorActivity)}</span>` : ''}
         ${l.soreness ? `<span>Soreness: ${h(l.soreness)}</span>` : ''}
       </div>
+      ${setDetail ? `<div class="hist-calf-row">${setDetail}</div>` : ''}
       <div class="hist-records">
         <div class="hist-record">
           <span></span>
           <button class="hist-del" onclick="deleteCalfEntry('${esc(l.id)}')" title="Delete">×</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
@@ -1387,6 +1589,44 @@ function exportCSV() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `greyskull-export-${localDateKey(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportCalfCSV() {
+  const header = ['Date', 'DayType', 'Exercise', 'Side', 'Set', 'Reps', 'Seconds', 'Weight_kg', 'Assist', 'PriorActivity', 'Soreness'];
+  const rows = [header];
+
+  const pushRows = (l, arr, exLabel, side, repsKey, secondsKey, weightKey) => {
+    (arr || []).forEach((s, idx) => {
+      rows.push([
+        l.date, l.dayType, exLabel, side, idx + 1,
+        repsKey ? (s[repsKey] ?? '') : '',
+        secondsKey ? (s[secondsKey] ?? '') : '',
+        weightKey ? (s[weightKey] ?? '') : '',
+        s.assist || '',
+        l.priorActivity || '',
+        l.soreness || '',
+      ]);
+    });
+  };
+
+  calfLogs.forEach(l => {
+    pushRows(l, l.heelRaiseLeft,    'Heel raise',        'Left',  'reps', null, null);
+    pushRows(l, l.heelRaiseRight,   'Heel raise',        'Right', 'reps', null, null);
+    pushRows(l, l.bigToeLeft,       'Big-toe press',     'Left',  null, 'seconds', null);
+    pushRows(l, l.bigToeRight,      'Big-toe press',     'Right', null, 'seconds', null);
+    pushRows(l, l.seatedCalfRaise,  'Seated calf raise', '',      'reps', null, 'weight');
+  });
+
+  const csv = rows.map(row => row.map(csvField).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `calf-export-${localDateKey(new Date())}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
