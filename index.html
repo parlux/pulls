@@ -259,6 +259,31 @@
   .chart-wrap { position: relative; height: 160px; }
   .chart-empty { height: 80px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; }
 
+  /* ─── CALF VIEW ─── */
+  .calf-daytype-badge {
+    display: inline-block; font-family: var(--font-display); font-size: 16px;
+    letter-spacing: 1px; color: var(--muted); padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 6px; margin-bottom: 14px;
+  }
+  .calf-daytype-badge.a-day { color: var(--accent); border-color: var(--accent); }
+  .calf-daytype-badge.b-day { color: var(--blue); border-color: var(--blue); }
+  .calf-daytype-badge.off   { color: var(--muted); }
+
+  .date-input, .text-input, .textarea-input {
+    background: var(--surface2); border: 1.5px solid var(--border);
+    border-radius: 6px; color: var(--text); font-family: var(--font-body);
+    font-size: 14px; padding: 10px 12px; width: 100%;
+    transition: border-color 0.15s;
+  }
+  .date-input:focus, .text-input:focus, .textarea-input:focus { outline: none; border-color: var(--accent); }
+  .textarea-input { resize: vertical; min-height: 60px; }
+
+  .week-dot.future { opacity: 0.4; }
+  .week-dot.off-day { border-style: dashed; }
+
+  .hist-calf-row { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .hist-calf-assist { font-weight: 700; color: var(--text); }
+
   /* ─── LOADING ─── */
   .loading-overlay {
     position: fixed; inset: 0; background: var(--bg);
@@ -356,6 +381,47 @@
   </div>
 </div>
 
+<!-- ─── CALF VIEW ─── -->
+<div class="view" id="viewCalf">
+  <div class="container">
+    <div class="log-header">
+      <div class="section-lbl">Calf Rehab</div>
+      <input type="date" class="date-input" id="calfDate" style="width:auto" onchange="onCalfDateChange()">
+    </div>
+    <div class="calf-daytype-badge" id="calfDayTypeBadge"></div>
+
+    <div id="calfAssistGroup" style="margin-bottom:14px">
+      <div class="input-lbl" style="margin-bottom:6px">Right-leg assist</div>
+      <div class="variant-pills" id="calfAssistPills"></div>
+    </div>
+
+    <div class="input-group" style="margin-bottom:14px">
+      <span class="input-lbl">Prior day's activity</span>
+      <input class="text-input" type="text" id="calfPriorActivity" placeholder="e.g. skated, rode, long walk, nothing">
+    </div>
+
+    <div class="input-group" style="margin-bottom:14px">
+      <span class="input-lbl">Soreness (optional)</span>
+      <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness next morning?"></textarea>
+    </div>
+
+    <div class="card-footer" style="padding:0 0 20px">
+      <button class="card-log-btn" id="calfLogBtn" onclick="logCalfEntry()">LOG</button>
+    </div>
+
+    <div class="section-lbl">This Week</div>
+    <div class="week-strip" id="calfWeekStrip"></div>
+
+    <div class="section-lbl">Right-Leg Assist Trend</div>
+    <div class="chart-block" id="calfChartBlock">
+      <div class="chart-wrap"><canvas id="calfChart"></canvas></div>
+    </div>
+
+    <div class="section-title"><span>CALF HISTORY</span></div>
+    <div class="history-list" id="calfHistoryList"></div>
+  </div>
+</div>
+
 <!-- BOTTOM TAB BAR -->
 <div class="tab-bar">
   <button class="tab-btn active" id="tabLog" onclick="showView('Log')">
@@ -370,6 +436,10 @@
     <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     Progress
   </button>
+  <button class="tab-btn" id="tabCalf" onclick="showView('Calf')">
+    <svg viewBox="0 0 24 24"><path d="M8 2v6.5a4 4 0 0 0 1.2 2.9L11 13v7a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-3a4 4 0 0 0-4-4h-1l-1.8-1.6A4 4 0 0 1 10 8.5V2"/></svg>
+    Calf
+  </button>
 </div>
 
 <script>
@@ -380,6 +450,19 @@ const AT_TABLE = 'Workouts';
 const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
 const AT_HEADS = { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' };
 const CACHE_KEY = 'greyskull_v2_cache';
+
+const AT_CALF_TABLE = 'CalfRehab';
+const AT_CALF_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_CALF_TABLE)}`;
+const CALF_CACHE_KEY = 'greyskull_calf_v1_cache';
+
+const CALF_SCHEDULE = ['Off', 'A', 'A', 'B', 'A', 'A', 'B']; // Date.getDay() index, Sun..Sat
+const CALF_DAYTYPE_LABEL = { A: 'A-day', B: 'B-day', Off: 'Off' };
+const ASSIST_LEVELS = ['Heavy', 'Moderate', 'Light', 'Barely touching'];
+const ASSIST_VALUE = { Heavy: 1, Moderate: 2, Light: 3, 'Barely touching': 4 };
+
+function calfDayType(dateStr) {
+  return CALF_SCHEDULE[new Date(dateStr + 'T12:00:00').getDay()];
+}
 
 const EXERCISES = [
   { key: 'chinup', label: 'Chin Ups',  color: '#5b8def', variants: ['Band-Assisted', 'Negative', 'Full', 'Weighted'] },
@@ -392,6 +475,9 @@ const EXERCISES = [
 let logs = [];
 let charts = {};
 let chartRange = '1m';
+let calfLogs = [];
+let calfCharts = {};
+let calfFormState = { assist: 'Moderate' };
 
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
@@ -402,8 +488,8 @@ const defaultState = () => ({
 let state = defaultState();
 
 // ─── AIRTABLE API ─────────────────────────────────────────────────────────────
-async function atFetch(path = '', opts = {}) {
-  const res = await fetch(AT_URL + path, { headers: AT_HEADS, ...opts });
+async function atFetch(path = '', opts = {}, baseUrl = AT_URL) {
+  const res = await fetch(baseUrl + path, { headers: AT_HEADS, ...opts });
   if (!res.ok) throw new Error(`AT ${res.status}: ${await res.text()}`);
   if (res.status === 204) return null;
   return res.json();
@@ -468,6 +554,53 @@ async function updateLog(log) {
 
 async function deleteLog(id) { await atFetch('/' + id, { method: 'DELETE' }); }
 
+// ─── CALF AIRTABLE API ────────────────────────────────────────────────────────
+async function fetchAllCalfLogs(signal) {
+  let records = [], offset = null;
+  do {
+    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
+    if (offset) p.set('offset', offset);
+    const data = await atFetch('?' + p, { signal }, AT_CALF_URL);
+    records = records.concat(data.records);
+    offset = data.offset || null;
+  } while (offset);
+  return records.map(normalizeCalfRecord);
+}
+
+function normalizeCalfRecord(r) {
+  const f = r.fields;
+  return {
+    id: r.id,
+    timestamp: f.Timestamp || '',
+    date: f.Date || '',
+    dayType: f.DayType || '',
+    assist: f.RightAssist || '',
+    priorActivity: f.PriorActivity || '',
+    soreness: f.Soreness || '',
+  };
+}
+
+function buildCalfFields(entry) {
+  return {
+    Timestamp: entry.timestamp,
+    Date: entry.date,
+    DayType: entry.dayType || null,
+    RightAssist: entry.assist || null,
+    PriorActivity: entry.priorActivity || '',
+    Soreness: entry.soreness || '',
+  };
+}
+
+async function createCalfLog(entry) {
+  const data = await atFetch('', {
+    method: 'POST',
+    body: JSON.stringify({ records: [{ fields: buildCalfFields(entry) }] }),
+  }, AT_CALF_URL);
+  return data.records[0].id;
+}
+
+async function deleteCalfLog(id) { await atFetch('/' + id, { method: 'DELETE' }, AT_CALF_URL); }
+
 // ─── SYNC STATUS ──────────────────────────────────────────────────────────────
 function setSync(status, label) {
   document.getElementById('syncDot').className = 'sync-dot ' + status;
@@ -483,16 +616,22 @@ async function load() {
   loadController = controller;
   setSync('syncing', 'Syncing...');
   try {
-    logs = await fetchAllLogs(controller.signal);
+    [logs, calfLogs] = await Promise.all([
+      fetchAllLogs(controller.signal),
+      fetchAllCalfLogs(controller.signal),
+    ]);
     if (controller.signal.aborted) return;
     setSync('ok', 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
+    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
   } catch (e) {
     if (controller.signal.aborted) return;
     console.warn('Airtable unavailable, using cache:', e);
     setSync('err', 'Offline (cached)');
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) logs = JSON.parse(cached);
+    const calfCached = localStorage.getItem(CALF_CACHE_KEY);
+    if (calfCached) calfLogs = JSON.parse(calfCached);
   } finally {
     if (loadController === controller) loadController = null;
   }
@@ -503,8 +642,18 @@ async function load() {
     if (recent) state[ex.key].variant = recent[ex.key].variant;
   });
 
+  // Pre-fill assist-level pill from the most recent A-day entry
+  const recentAssist = calfLogs.find(l => l.assist);
+  if (recentAssist) calfFormState.assist = recentAssist.assist;
+
   renderCards();
   renderHistory();
+  if (document.getElementById('viewCalf')?.classList.contains('active')) {
+    renderCalfForm();
+    renderCalfWeek();
+    renderCalfChart();
+    renderCalfHistory();
+  }
 
   const overlay = document.getElementById('loadingOverlay');
   if (overlay) {
@@ -520,6 +669,7 @@ function showView(name) {
   document.getElementById('view' + name).classList.add('active');
   document.getElementById('tab' + name).classList.add('active');
   if (name === 'Progress') renderProgress();
+  if (name === 'Calf') { renderCalfForm(); renderCalfWeek(); renderCalfChart(); renderCalfHistory(); }
 }
 
 // ─── TARGET ───────────────────────────────────────────────────────────────────
@@ -965,6 +1115,240 @@ function renderCharts() {
       },
     });
   });
+}
+
+// ─── CALF RENDER ──────────────────────────────────────────────────────────────
+function renderCalfForm() {
+  const dateInput = document.getElementById('calfDate');
+  if (!dateInput.value) dateInput.value = localDateKey(new Date());
+  updateCalfDayTypeUI(dateInput.value);
+}
+
+function onCalfDateChange() {
+  updateCalfDayTypeUI(document.getElementById('calfDate').value);
+}
+
+function updateCalfDayTypeUI(dateStr) {
+  const type = calfDayType(dateStr); // 'A' | 'B' | 'Off'
+  const badge = document.getElementById('calfDayTypeBadge');
+  const d = new Date(dateStr + 'T12:00:00');
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  badge.textContent = `${dow} · ${CALF_DAYTYPE_LABEL[type]}`;
+  badge.className = 'calf-daytype-badge ' + (type === 'A' ? 'a-day' : type === 'B' ? 'b-day' : 'off');
+
+  const group = document.getElementById('calfAssistGroup');
+  group.style.display = type === 'A' ? '' : 'none';
+  if (type === 'A') renderCalfAssistPills();
+}
+
+function renderCalfAssistPills() {
+  const wrap = document.getElementById('calfAssistPills');
+  wrap.innerHTML = ASSIST_LEVELS.map(v =>
+    `<button class="pill${calfFormState.assist === v ? ' active' : ''}" onclick="setCalfAssist('${esc(v)}')">${h(v)}</button>`
+  ).join('');
+}
+
+function setCalfAssist(v) { calfFormState.assist = v; renderCalfAssistPills(); }
+
+async function logCalfEntry() {
+  const dateStr = document.getElementById('calfDate').value || localDateKey(new Date());
+  const type = calfDayType(dateStr);
+  const entry = {
+    timestamp: new Date().toISOString(),
+    date: dateStr,
+    dayType: CALF_DAYTYPE_LABEL[type],
+    assist: type === 'A' ? calfFormState.assist : '',
+    priorActivity: document.getElementById('calfPriorActivity').value.trim(),
+    soreness: document.getElementById('calfSoreness').value.trim(),
+  };
+
+  const btn = document.getElementById('calfLogBtn');
+  btn.disabled = true;
+  btn.textContent = '...';
+  setSync('syncing', 'Saving...');
+
+  try {
+    entry.id = await createCalfLog(entry);
+    calfLogs.unshift(entry);
+    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
+    setSync('ok', 'Saved ✓');
+  } catch (e) {
+    console.error(e);
+    entry.id = localId();
+    calfLogs.unshift(entry);
+    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
+    setSync('err', 'Saved locally');
+    alert('Airtable unavailable — kept locally.\n\n' + e.message);
+  }
+
+  document.getElementById('calfPriorActivity').value = '';
+  document.getElementById('calfSoreness').value = '';
+  btn.disabled = false;
+  btn.textContent = 'LOG';
+
+  renderCalfWeek();
+  renderCalfChart();
+  renderCalfHistory();
+}
+
+async function deleteCalfEntry(id) {
+  if (!confirm('Delete this entry?')) return;
+  setSync('syncing', 'Deleting...');
+  try {
+    if (id && !id.startsWith('local-')) await deleteCalfLog(id);
+    calfLogs = calfLogs.filter(l => l.id !== id);
+    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
+    setSync('ok', 'Deleted');
+    renderCalfWeek();
+    renderCalfChart();
+    renderCalfHistory();
+  } catch (e) {
+    console.error(e);
+    setSync('err', 'Delete failed');
+    alert('Delete failed.\n\n' + e.message);
+  }
+}
+
+function renderCalfWeek() {
+  const strip = document.getElementById('calfWeekStrip');
+  strip.innerHTML = '';
+  const today = new Date();
+  const todayKey = localDateKey(today);
+  const dow = today.getDay(); // 0=Sun..6=Sat
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const monday = addDays(today, mondayOffset);
+
+  const loggedDates = new Set(calfLogs.map(l => l.date));
+  const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(monday, i);
+    const ds = localDateKey(d);
+    const type = calfDayType(ds); // 'A'|'B'|'Off'
+    const isFuture = ds > todayKey;
+    const isLogged = loggedDates.has(ds);
+
+    const wrap = document.createElement('div'); wrap.className = 'week-day';
+    const dot = document.createElement('div');
+    dot.className = 'week-dot' +
+      (type === 'Off' ? ' off-day' : '') +
+      (isLogged ? ' trained' : (isFuture ? ' future' : ''));
+    const lbl = document.createElement('div'); lbl.className = 'week-dot-lbl';
+    lbl.textContent = `${labels[i]} · ${type}`;
+    wrap.appendChild(dot); wrap.appendChild(lbl); strip.appendChild(wrap);
+  }
+}
+
+function renderCalfChart() {
+  if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
+
+  const aEntries = calfLogs
+    .filter(l => l.dayType === 'A-day' && l.assist)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const block = document.getElementById('calfChartBlock');
+  if (aEntries.length === 0) {
+    block.innerHTML = '<div class="chart-empty">No A-day entries yet</div>';
+    return;
+  }
+  if (!document.getElementById('calfChart')) {
+    block.innerHTML = '<div class="chart-wrap"><canvas id="calfChart"></canvas></div>';
+  }
+
+  // Fill every scheduled A-day between first and last entry so missed A-days show as gaps
+  const first = new Date(aEntries[0].date + 'T00:00:00');
+  const last = new Date();
+  const byDate = {};
+  aEntries.forEach(e => { byDate[e.date] = e; });
+
+  const pts = [];
+  for (let d = new Date(first); d <= last; d = addDays(d, 1)) {
+    const ds = localDateKey(d);
+    if (calfDayType(ds) !== 'A') continue;
+    pts.push(byDate[ds] ? { date: ds, assist: byDate[ds].assist } : { date: ds, assist: null });
+  }
+
+  const ctx = document.getElementById('calfChart').getContext('2d');
+  calfCharts.trend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: pts.map(p => fmtDate(p.date)),
+      datasets: [{
+        data: pts.map(p => p.assist ? ASSIST_VALUE[p.assist] : null),
+        spanGaps: false,
+        borderColor: '#5b8def',
+        backgroundColor: '#5b8def20',
+        pointStyle: pts.map(p => p.assist ? 'circle' : 'crossRot'),
+        pointBackgroundColor: pts.map(p => p.assist ? '#5b8def' : VARIANT_MISSED_COLOR),
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderWidth: 2,
+        fill: false,
+        tension: 0.3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#141416',
+          borderColor: '#2a2a30',
+          borderWidth: 1,
+          titleColor: '#e8e6e0',
+          bodyColor: '#9b98a0',
+          callbacks: {
+            label: item => {
+              const p = pts[item.dataIndex];
+              return p.assist ? p.assist : 'Not logged';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#6b6870', font: { size: 10 }, maxTicksLimit: 7 },
+          grid: { color: '#1c1c20' },
+        },
+        y: {
+          min: 0.5, max: 4.5,
+          ticks: {
+            color: '#6b6870', font: { size: 10 }, stepSize: 1,
+            callback: v => ({ 1: 'Heavy', 2: 'Moderate', 3: 'Light', 4: 'Barely touching' }[v] || ''),
+          },
+          grid: { color: '#1c1c20' },
+        },
+      },
+    },
+  });
+}
+
+function renderCalfHistory() {
+  const list = document.getElementById('calfHistoryList');
+  if (calfLogs.length === 0) {
+    list.innerHTML = '<div class="empty"><strong>NO CALF LOGS YET</strong>Log your first session above.</div>';
+    return;
+  }
+  list.innerHTML = calfLogs.slice(0, 120).map(l => `
+    <div class="hist-item">
+      <div class="hist-head">
+        <span class="hist-date">${fmtDate(l.date)}</span>
+        <span class="hist-dow">${fmtDow(l.date)}</span>
+      </div>
+      <div class="hist-calf-row">
+        <span>${h(l.dayType)}${l.assist ? ` · <span class="hist-calf-assist">${h(l.assist)}</span>` : ''}</span>
+        ${l.priorActivity ? `<span>Prior: ${h(l.priorActivity)}</span>` : ''}
+        ${l.soreness ? `<span>Soreness: ${h(l.soreness)}</span>` : ''}
+      </div>
+      <div class="hist-records">
+        <div class="hist-record">
+          <span></span>
+          <button class="hist-del" onclick="deleteCalfEntry('${esc(l.id)}')" title="Delete">×</button>
+        </div>
+      </div>
+    </div>`).join('');
 }
 
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
