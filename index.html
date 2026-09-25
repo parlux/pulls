@@ -476,7 +476,7 @@ function calfDayType(dateStr) {
 const EXERCISES = [
   { key: 'chinup', label: 'Chin Ups',  color: '#5b8def', variants: ['Band-Assisted', 'Negative', 'Full', 'Weighted'] },
   { key: 'pushup', label: 'Push Ups',  color: '#e8a020', variants: ['Incline', 'Knee', 'Full', 'Decline', 'Weighted'] },
-  { key: 'situp',  label: 'Sit Ups',   color: '#3ab06a', variants: ['Crunch', 'Assisted', 'Full', 'Decline'] },
+  { key: 'deadbug', label: 'Deadbugs', color: '#3ab06a', variants: ['Bent-Knee', 'Straight-Leg', 'Iso Hold', 'Weighted'] },
   { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['No Jump', 'No Pushup', 'Full'] },
 ];
 
@@ -491,7 +491,7 @@ let calfSetsState = { heelRaise: { left: [], right: [] }, bigToe: { left: [], ri
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
   pushup: { variant: 'Knee',          sets: '1', reps: '' },
-  situp:  { variant: 'Full',          sets: '1', reps: '' },
+  deadbug: { variant: 'Bent-Knee',    sets: '1', reps: '' },
   burpee: { variant: 'No Jump',       sets: '1', reps: '' },
 });
 let state = defaultState();
