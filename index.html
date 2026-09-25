@@ -421,7 +421,7 @@
     <div class="section-lbl">This Week</div>
     <div class="week-strip" id="calfWeekStrip"></div>
 
-    <div class="section-lbl">Right-Leg Assist Trend</div>
+    <div class="section-lbl">Left-Leg Assist Trend</div>
     <div class="chart-block" id="calfChartBlock">
       <div class="chart-wrap"><canvas id="calfChart"></canvas></div>
     </div>
@@ -605,6 +605,7 @@ function buildCalfFields(entry) {
     Timestamp: entry.timestamp,
     Date: entry.date,
     DayType: entry.dayType || null,
+    // Airtable fields keep their legacy Right* names but hold the left-leg assist
     RightAssist: entry.assist || null,
     RightAssistAvg: entry.assistAvg ?? null,
     PriorActivity: entry.priorActivity || '',
@@ -1179,8 +1180,8 @@ function loadCalfSetsFromExisting(dateStr) {
   if (!existing) return;
   const lastAssist = (calfLogs.find(l => l.assist) || {}).assist || 'Moderate';
 
-  if (existing.heelRaiseLeft?.length) calfSetsState.heelRaise.left = existing.heelRaiseLeft.map(s => ({ reps: String(s.reps) }));
-  if (existing.heelRaiseRight?.length) calfSetsState.heelRaise.right = existing.heelRaiseRight.map(s => ({ reps: String(s.reps), assist: s.assist || lastAssist }));
+  if (existing.heelRaiseLeft?.length) calfSetsState.heelRaise.left = existing.heelRaiseLeft.map(s => ({ reps: String(s.reps), assist: s.assist || lastAssist }));
+  if (existing.heelRaiseRight?.length) calfSetsState.heelRaise.right = existing.heelRaiseRight.map(s => ({ reps: String(s.reps) }));
   if (existing.bigToeLeft?.length) calfSetsState.bigToe.left = existing.bigToeLeft.map(s => ({ seconds: String(s.seconds) }));
   if (existing.bigToeRight?.length) calfSetsState.bigToe.right = existing.bigToeRight.map(s => ({ seconds: String(s.seconds) }));
   if (existing.seatedCalfRaise?.length) calfSetsState.seated = existing.seatedCalfRaise.map(s => ({ reps: String(s.reps), weight: String(s.weight) }));
@@ -1192,8 +1193,8 @@ function resetCalfSetsState(type) {
   const lastWeight = recentB ? recentB.seatedCalfRaise[recentB.seatedCalfRaise.length - 1].weight : 10;
 
   if (type === 'A') {
-    calfSetsState.heelRaise.left  = [{ reps: '' }, { reps: '' }, { reps: '' }];
-    calfSetsState.heelRaise.right = [{ reps: '', assist: lastAssist }, { reps: '', assist: lastAssist }];
+    calfSetsState.heelRaise.left  = [{ reps: '', assist: lastAssist }, { reps: '', assist: lastAssist }, { reps: '', assist: lastAssist }];
+    calfSetsState.heelRaise.right = [{ reps: '' }, { reps: '' }];
     calfSetsState.bigToe.left     = [{ seconds: '30' }, { seconds: '30' }, { seconds: '30' }];
     calfSetsState.bigToe.right    = [{ seconds: '30' }, { seconds: '30' }, { seconds: '30' }];
     calfSetsState.seated = [];
@@ -1257,7 +1258,7 @@ function renderSetRows(exercise, side) {
     const removeBtn = `<button class="set-remove" onclick="removeCalfSet('${exercise}','${side || ''}',${idx})" title="Remove set">×</button>`;
 
     if (exercise === 'heelRaise') {
-      const assistPills = side === 'right' ? `
+      const assistPills = side === 'left' ? `
         <div class="variant-pills set-row-assist">
           ${ASSIST_LEVELS.map(v => `<button class="pill${row.assist === v ? ' active' : ''}" onclick="setCalfSetAssist(${idx},'${esc(v)}')">${h(v)}</button>`).join('')}
         </div>` : '';
@@ -1308,7 +1309,7 @@ function addCalfSet(exercise, side) {
     calfSetsState.seated.push({ reps: '', weight: last ? last.weight : '10' });
     renderSetRows('seated');
   } else if (exercise === 'heelRaise') {
-    calfSetsState.heelRaise[side].push(side === 'right' ? { reps: '', assist: 'Moderate' } : { reps: '' });
+    calfSetsState.heelRaise[side].push(side === 'left' ? { reps: '', assist: 'Moderate' } : { reps: '' });
     renderSetRows('heelRaise', side);
   } else {
     calfSetsState.bigToe[side].push({ seconds: '30' });
@@ -1327,21 +1328,21 @@ function removeCalfSet(exercise, side, idx) {
 }
 
 function setCalfSetAssist(idx, level) {
-  calfSetsState.heelRaise.right[idx].assist = level;
-  renderSetRows('heelRaise', 'right');
+  calfSetsState.heelRaise.left[idx].assist = level;
+  renderSetRows('heelRaise', 'left');
 }
 
 async function logCalfEntry() {
   const dateStr = document.getElementById('calfDate').value || localDateKey(new Date());
   const type = calfDayType(dateStr);
 
-  const heelRaiseLeft   = type === 'A' ? calfSetsState.heelRaise.left.map(r => ({ reps: num(r.reps) })).filter(r => r.reps != null) : [];
-  const heelRaiseRight  = type === 'A' ? calfSetsState.heelRaise.right.map(r => ({ reps: num(r.reps), assist: r.assist || null })).filter(r => r.reps != null) : [];
+  const heelRaiseLeft   = type === 'A' ? calfSetsState.heelRaise.left.map(r => ({ reps: num(r.reps), assist: r.assist || null })).filter(r => r.reps != null) : [];
+  const heelRaiseRight  = type === 'A' ? calfSetsState.heelRaise.right.map(r => ({ reps: num(r.reps) })).filter(r => r.reps != null) : [];
   const bigToeLeft      = type === 'A' ? calfSetsState.bigToe.left.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
   const bigToeRight     = type === 'A' ? calfSetsState.bigToe.right.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
   const seatedCalfRaise = type === 'B' ? calfSetsState.seated.map(r => ({ reps: num(r.reps), weight: num(r.weight) })).filter(r => r.reps != null) : [];
 
-  const assistVals = heelRaiseRight.map(s => ASSIST_VALUE[s.assist]).filter(Boolean);
+  const assistVals = heelRaiseLeft.map(s => ASSIST_VALUE[s.assist]).filter(Boolean);
   const assistAvg = assistVals.length ? assistVals.reduce((a, b) => a + b, 0) / assistVals.length : null;
   const assist = assistAvg ? ASSIST_LEVELS[Math.round(assistAvg) - 1] : '';
 
@@ -1472,7 +1473,7 @@ function renderCalfChart() {
     if (calfDayType(ds) !== 'A') continue;
     const e = byDate[ds];
     const assistAvg = e ? (e.assistAvg != null ? e.assistAvg : (e.assist ? ASSIST_VALUE[e.assist] : null)) : null;
-    pts.push(e ? { date: ds, assist: e.assist, assistAvg, heelRaiseRight: e.heelRaiseRight || [] } : { date: ds, assist: null, assistAvg: null, heelRaiseRight: [] });
+    pts.push(e ? { date: ds, assist: e.assist, assistAvg, heelRaiseLeft: e.heelRaiseLeft || [] } : { date: ds, assist: null, assistAvg: null, heelRaiseLeft: [] });
   }
 
   const ctx = document.getElementById('calfChart').getContext('2d');
@@ -1510,7 +1511,7 @@ function renderCalfChart() {
               const p = pts[item.dataIndex];
               if (p.assistAvg == null) return 'Not logged';
               const rounded = ASSIST_LEVELS[Math.round(p.assistAvg) - 1] || '';
-              const setsStr = p.heelRaiseRight.map(s => s.assist).filter(Boolean).join(', ');
+              const setsStr = p.heelRaiseLeft.map(s => s.assist).filter(Boolean).join(', ');
               return `${rounded} (avg ${p.assistAvg.toFixed(2)})${setsStr ? ` · sets: ${setsStr}` : ''}`;
             },
           },
@@ -1538,8 +1539,8 @@ function renderCalfSetDetail(l) {
   const lines = [];
   const hrL = l.heelRaiseLeft || [], hrR = l.heelRaiseRight || [];
   if (hrL.length || hrR.length) {
-    const lStr = hrL.map(s => s.reps).join(', ');
-    const rStr = hrR.map(s => s.assist ? `${s.reps} (${s.assist})` : `${s.reps}`).join(', ');
+    const lStr = hrL.map(s => s.assist ? `${s.reps} (${s.assist})` : `${s.reps}`).join(', ');
+    const rStr = hrR.map(s => s.reps).join(', ');
     lines.push(`Heel raise${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
   }
   const btL = l.bigToeLeft || [], btR = l.bigToeRight || [];
