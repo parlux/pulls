@@ -644,7 +644,11 @@ function setSync(status, label) {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 let loadController = null;
-async function load() {
+// A write makes local state newer than any in-flight fetch, so drop that fetch.
+function abortLoad() { loadController?.abort(); }
+
+// background: resync triggered by focus/online — don't reset the calf form inputs.
+async function load(background = false) {
   if (loadController) loadController.abort();
   const controller = new AbortController();
   loadController = controller;
@@ -679,7 +683,7 @@ async function load() {
   renderCards();
   renderHistory();
   if (document.getElementById('viewCalf')?.classList.contains('active')) {
-    renderCalfForm();
+    if (!background) renderCalfForm();
     renderCalfWeek();
     renderCalfChart();
     renderCalfHistory();
@@ -826,6 +830,7 @@ async function logExercise(key) {
     return;
   }
 
+  abortLoad();
   const btn = document.getElementById('logbtn-' + key);
   btn.disabled = true;
   btn.textContent = '...';
@@ -872,6 +877,7 @@ async function logExercise(key) {
 async function deleteEntry(key) {
   const log = logs.find(l => logKey(l) === key);
   if (!log || !confirm('Delete this entry?')) return;
+  abortLoad();
   setSync('syncing', 'Deleting...');
   try {
     if (log.id && !log.id.startsWith('local-')) await deleteLog(log.id);
@@ -1359,6 +1365,7 @@ async function logCalfEntry() {
     soreness: document.getElementById('calfSoreness').value.trim(),
   };
 
+  abortLoad();
   const btn = document.getElementById('calfLogBtn');
   btn.disabled = true;
   btn.textContent = '...';
@@ -1398,6 +1405,7 @@ async function logCalfEntry() {
 
 async function deleteCalfEntry(id) {
   if (!confirm('Delete this entry?')) return;
+  abortLoad();
   setSync('syncing', 'Deleting...');
   try {
     if (id && !id.startsWith('local-')) await deleteCalfLog(id);
@@ -1712,12 +1720,12 @@ function esc(v) { return String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 load();
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') load();
+  if (document.visibilityState === 'visible') load(true);
 });
 window.addEventListener('pageshow', (e) => {
-  if (e.persisted) load();
+  if (e.persisted) load(true);
 });
-window.addEventListener('online', () => load());
+window.addEventListener('online', () => load(true));
 </script>
 </body>
 </html>
