@@ -1532,6 +1532,7 @@ function renderCalfChart() {
         },
         y: {
           min: 0.5, max: 4.5,
+          reverse: true, // Heavy at top so reducing assist trends downward
           ticks: {
             color: '#6b6870', font: { size: 10 }, stepSize: 1,
             callback: v => ({ 1: 'Heavy', 2: 'Moderate', 3: 'Light', 4: 'Barely touching' }[v] || ''),
