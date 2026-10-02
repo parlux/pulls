@@ -2,7 +2,25 @@
 
 Use this as the spec for a small tracking web page/app.
 
-## Program — Block 1, this week
+## Program — Block 2 (from Mon 2026-10-05)
+
+### A-days — Mon, Tue, Thu, Fri
+
+**1. Two-up, one-down heel raise** — Left 5 × 4, Right 2 × 6. Log assist level (left) and clean reps per set.
+
+**2. Mid-height iso hold (holding doorframe)** — Left 3 holds, Right 2. Rise to about halfway, hold until you start sinking, 30 s cap. Log time and grip (Full hand / Fingers / Fingertips / One finger). Once 30 s is reached with a lighter grip, move to the next grip down.
+
+### B-days — Wed, Sat
+
+Bent-knee heel raise, 10 kg, 2 × 15 each leg.
+
+(Sat doorway single-leg benchmark is tracked outside the app.)
+
+### Tracker notes
+
+Entries dated before 2026-10-05 use the Block 1 form below; Block 2 adds Airtable fields `IsoHoldLeft_Sets`, `IsoHoldRight_Sets` (`{seconds, grip}`) and `BentKneeLeft_Sets`, `BentKneeRight_Sets` (`{reps, weight}`). Block 1 fields are kept for history.
+
+## Program — Block 1 (2026-09-19 → 2026-10-04)
 
 ### A-days — Mon, Tue, Thu, Fri (~10 min)
 
