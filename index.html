@@ -1079,9 +1079,11 @@ function renderCharts() {
       .filter(l => l.date >= cutoff && l[ex.key].sets != null && l[ex.key].reps != null)
       .forEach(l => {
         const d = l.date;
-        if (!byDate[d]) byDate[d] = { date: d, total: 0, sets: 0, variant: l[ex.key].variant };
+        if (!byDate[d]) byDate[d] = { date: d, total: 0, sets: 0, maxReps: 0, mixed: false, variant: l[ex.key].variant };
+        if (byDate[d].sets && byDate[d].maxReps !== l[ex.key].reps) byDate[d].mixed = true;
         byDate[d].total += l[ex.key].sets * l[ex.key].reps;
         byDate[d].sets += l[ex.key].sets;
+        byDate[d].maxReps = Math.max(byDate[d].maxReps, l[ex.key].reps);
         byDate[d].variant = l[ex.key].variant; // use most recent variant for label
       });
     const hasData = Object.keys(byDate).length > 0;
@@ -1090,7 +1092,7 @@ function renderCharts() {
     const pts = [];
     for (let d = new Date(cutoffDate); d <= todayDate; d = addDays(d, 1)) {
       const ds = localDateKey(d);
-      pts.push(byDate[ds] || { date: ds, total: 0, sets: 0, variant: '' });
+      pts.push(byDate[ds] || { date: ds, total: 0, sets: 0, maxReps: 0, mixed: false, variant: '' });
     }
 
     const variantsInRange = ex.variants.filter(v => Object.values(byDate).some(d => d.variant === v));
@@ -1119,7 +1121,8 @@ function renderCharts() {
       data: {
         labels: pts.map(p => fmtDate(p.date)),
         datasets: [{
-          data: pts.map(p => p.total),
+          data: pts.map(p => p.maxReps),
+          yAxisID: 'y',
           borderColor: ex.color,
           backgroundColor: ex.color + '20',
           pointBackgroundColor: pts.map(p => variantColor(ex, p.variant)),
@@ -1130,6 +1133,16 @@ function renderCharts() {
           borderWidth: 2,
           segment: { borderColor: ctx => segmentColor(ex, pts, ctx) },
           fill: true,
+          tension: 0.3,
+        }, {
+          data: pts.map(p => p.total),
+          yAxisID: 'y1',
+          borderColor: ex.color + '66',
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
           tension: 0.3,
         }],
       },
@@ -1145,11 +1158,15 @@ function renderCharts() {
             titleColor: '#e8e6e0',
             bodyColor: '#9b98a0',
             usePointStyle: true,
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: item => {
                 const p = pts[item.dataIndex];
                 if (p.sets === 0) return 'Missed day';
-                return `${p.sets} set${p.sets !== 1 ? 's' : ''} · ${p.total} reps · ${p.variant}`;
+                const scheme = p.mixed
+                  ? `${p.sets} set${p.sets !== 1 ? 's' : ''} · best ${p.maxReps}`
+                  : `${p.sets}×${p.maxReps}`;
+                return `${scheme} · ${p.total} total · ${p.variant}`;
               },
             },
           },
@@ -1161,9 +1178,16 @@ function renderCharts() {
           },
           y: {
             min: 0,
-            ticks: { color: '#6b6870', font: { size: 10 } },
+            ticks: { color: '#6b6870', font: { size: 10 }, precision: 0 },
             grid: { color: '#1c1c20' },
-            title: { display: true, text: 'Total reps', color: '#6b6870', font: { size: 10 } },
+            title: { display: true, text: 'Reps / set', color: '#6b6870', font: { size: 10 } },
+          },
+          y1: {
+            position: 'right',
+            min: 0,
+            ticks: { color: '#6b6870', font: { size: 10 }, precision: 0 },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'Total ┄', color: '#6b6870', font: { size: 10 } },
           },
         },
       },
