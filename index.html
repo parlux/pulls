@@ -421,7 +421,7 @@
     <div class="section-lbl">This Week</div>
     <div class="week-strip" id="calfWeekStrip"></div>
 
-    <div class="section-lbl">Left-Leg Assist Trend</div>
+    <div class="section-lbl">Iso Hold Benchmark</div>
     <div class="chart-block" id="calfChartBlock">
       <div class="chart-wrap"><canvas id="calfChart"></canvas></div>
     </div>
@@ -472,8 +472,17 @@ const ASSIST_VALUE = { Heavy: 1, Moderate: 2, Light: 3, 'Barely touching': 4 };
 const CALF_BLOCK2_START = '2026-10-05';
 const GRIP_LEVELS = ['Full hand', 'Fingers', 'Fingertips', 'One finger'];
 
+// From this date the left heel raise and iso hold are assisted by pulling on the doorframe
+const CALF_PULL_START = '2026-10-10';
+const HEEL_PULL_LEVELS = ['Heavy', 'Moderate', 'Light', 'Balance only', 'Fingertips'];
+const ISO_PULL_LEVELS  = ['Heavy', 'Moderate', 'Light', 'Fingertips', 'Balance only'];
+
 function calfBlock(dateStr) {
   return dateStr >= CALF_BLOCK2_START ? 2 : 1;
+}
+
+function usesPull(dateStr) {
+  return dateStr >= CALF_PULL_START;
 }
 
 function calfDayType(dateStr) {
@@ -495,6 +504,7 @@ let charts = {};
 let chartRange = '1m';
 let calfLogs = [];
 let calfCharts = {};
+let calfPull = false; // form date is on/after CALF_PULL_START
 let calfSetsState = {
   heelRaise: { left: [], right: [] }, bigToe: { left: [], right: [] }, seated: [], // Block 1 (+ heel raise in Block 2)
   isoHold: { left: [], right: [] }, bentKnee: { left: [], right: [] },             // Block 2
@@ -1223,6 +1233,7 @@ function updateCalfDayTypeUI(dateStr) {
   badge.textContent = `${dow} · ${CALF_DAYTYPE_LABEL[type]} · Block ${block}`;
   badge.className = 'calf-daytype-badge ' + (type === 'A' ? 'a-day' : type === 'B' ? 'b-day' : 'off');
 
+  calfPull = usesPull(dateStr);
   resetCalfSetsState(type, block);
   loadCalfSetsFromExisting(dateStr);
   renderCalfExerciseSections(type, block);
@@ -1237,7 +1248,9 @@ function loadCalfSetsFromExisting(dateStr) {
   if (!existing) return;
   const lastAssist = (calfLogs.find(l => l.assist) || {}).assist || 'Moderate';
 
-  if (existing.heelRaiseLeft?.length) calfSetsState.heelRaise.left = existing.heelRaiseLeft.map(s => ({ reps: String(s.reps), assist: s.assist || lastAssist }));
+  if (existing.heelRaiseLeft?.length) calfSetsState.heelRaise.left = existing.heelRaiseLeft.map(s => calfPull
+    ? { reps: String(s.reps), pull: s.pull || lastCalfPull('heelRaiseLeft') }
+    : { reps: String(s.reps), assist: s.assist || lastAssist });
   if (existing.heelRaiseRight?.length) calfSetsState.heelRaise.right = existing.heelRaiseRight.map(s => ({ reps: String(s.reps) }));
   if (existing.bigToeLeft?.length) calfSetsState.bigToe.left = existing.bigToeLeft.map(s => ({ seconds: String(s.seconds) }));
   if (existing.bigToeRight?.length) calfSetsState.bigToe.right = existing.bigToeRight.map(s => ({ seconds: String(s.seconds) }));
@@ -1245,15 +1258,27 @@ function loadCalfSetsFromExisting(dateStr) {
   ['left', 'right'].forEach(side => {
     const iso = side === 'left' ? existing.isoHoldLeft : existing.isoHoldRight;
     const bk  = side === 'left' ? existing.bentKneeLeft : existing.bentKneeRight;
-    if (iso?.length) calfSetsState.isoHold[side] = iso.map(s => ({ seconds: String(s.seconds), grip: s.grip || GRIP_LEVELS[0] }));
+    if (iso?.length) calfSetsState.isoHold[side] = iso.map(s => calfPull
+      ? { seconds: String(s.seconds), pull: s.pull || lastCalfPull(isoKey(side)) }
+      : { seconds: String(s.seconds), grip: s.grip || GRIP_LEVELS[0] });
     if (bk?.length) calfSetsState.bentKnee[side] = bk.map(s => ({ reps: String(s.reps), weight: String(s.weight) }));
   });
 }
 
+const isoKey = side => side === 'left' ? 'isoHoldLeft' : 'isoHoldRight';
+
+// Last logged value of `prop` in the sets stored under `setsKey`
+function lastCalfSetValue(setsKey, prop) {
+  const recent = calfLogs.find(l => (l[setsKey] || []).some(s => s[prop]));
+  return recent ? recent[setsKey].filter(s => s[prop]).pop()[prop] : null;
+}
+
 function lastCalfGrip(side) {
-  const key = side === 'left' ? 'isoHoldLeft' : 'isoHoldRight';
-  const recent = calfLogs.find(l => (l[key] || []).length);
-  return recent ? recent[key][recent[key].length - 1].grip || GRIP_LEVELS[0] : GRIP_LEVELS[0];
+  return lastCalfSetValue(isoKey(side), 'grip') || GRIP_LEVELS[0];
+}
+
+function lastCalfPull(setsKey) {
+  return lastCalfSetValue(setsKey, 'pull') || 'Moderate';
 }
 
 function lastBentKneeWeight() {
@@ -1283,10 +1308,16 @@ function resetCalfSetsState(type, block) {
       calfSetsState.seated = rows(2, () => ({ reps: '', weight: String(lastWeight) }));
     }
   } else if (type === 'A') {
-    calfSetsState.heelRaise.left  = rows(5, () => ({ reps: '', assist: lastAssist }));
     calfSetsState.heelRaise.right = rows(2, () => ({ reps: '' }));
-    calfSetsState.isoHold.left    = rows(3, () => ({ seconds: '', grip: lastCalfGrip('left') }));
-    calfSetsState.isoHold.right   = rows(2, () => ({ seconds: '', grip: lastCalfGrip('right') }));
+    if (calfPull) {
+      calfSetsState.heelRaise.left = rows(5, () => ({ reps: '', pull: lastCalfPull('heelRaiseLeft') }));
+      calfSetsState.isoHold.left   = rows(3, () => ({ seconds: '', pull: lastCalfPull('isoHoldLeft') }));
+      calfSetsState.isoHold.right  = rows(2, () => ({ seconds: '', pull: lastCalfPull('isoHoldRight') }));
+    } else {
+      calfSetsState.heelRaise.left = rows(5, () => ({ reps: '', assist: lastAssist }));
+      calfSetsState.isoHold.left   = rows(3, () => ({ seconds: '', grip: lastCalfGrip('left') }));
+      calfSetsState.isoHold.right  = rows(2, () => ({ seconds: '', grip: lastCalfGrip('right') }));
+    }
   } else if (type === 'B') {
     const w = String(lastBentKneeWeight());
     calfSetsState.bentKnee.left  = rows(2, () => ({ reps: '15', weight: w }));
@@ -1314,7 +1345,7 @@ function renderCalfExerciseSections(type, block) {
     wrap.innerHTML = calfSidedBlock('Two-up, one-down heel raise', 'heelRaise') + calfSidedBlock('Big-toe press', 'bigToe');
     sided = ['heelRaise', 'bigToe'];
   } else if (type === 'A') {
-    wrap.innerHTML = calfSidedBlock('Two-up, one-down heel raise · clean reps', 'heelRaise') +
+    wrap.innerHTML = calfSidedBlock(`Two-up, one-down heel raise · ${calfPull ? 'doorframe pull' : 'clean reps'}`, 'heelRaise') +
       calfSidedBlock('Mid-height iso hold · doorframe, 30s cap', 'isoHold');
     sided = ['heelRaise', 'isoHold'];
   } else if (type === 'B' && block === 1) {
@@ -1334,6 +1365,13 @@ function renderCalfExerciseSections(type, block) {
   sided.forEach(ex => { renderSetRows(ex, 'left'); renderSetRows(ex, 'right'); });
 }
 
+function pullPills(exercise, side, idx, row, levels) {
+  return `
+        <div class="variant-pills set-row-assist">
+          ${levels.map(v => `<button class="pill${row.pull === v ? ' active' : ''}" onclick="setCalfSetPull('${exercise}','${side}',${idx},'${esc(v)}')">${h(v)}</button>`).join('')}
+        </div>`;
+}
+
 function renderSetRows(exercise, side) {
   const containerId = side ? `calfRows-${exercise}-${side}` : `calfRows-${exercise}`;
   const container = document.getElementById(containerId);
@@ -1344,10 +1382,10 @@ function renderSetRows(exercise, side) {
     const removeBtn = `<button class="set-remove" onclick="removeCalfSet('${exercise}','${side || ''}',${idx})" title="Remove set">×</button>`;
 
     if (exercise === 'heelRaise') {
-      const assistPills = side === 'left' ? `
+      const assistPills = side !== 'left' ? '' : calfPull ? pullPills('heelRaise', side, idx, row, HEEL_PULL_LEVELS) : `
         <div class="variant-pills set-row-assist">
           ${ASSIST_LEVELS.map(v => `<button class="pill${row.assist === v ? ' active' : ''}" onclick="setCalfSetAssist(${idx},'${esc(v)}')">${h(v)}</button>`).join('')}
-        </div>` : '';
+        </div>`;
       return `
         <div class="set-row">
           <div class="input-group">
@@ -1381,9 +1419,10 @@ function renderSetRows(exercise, side) {
               oninput="calfSetsState.isoHold.${side}[${idx}].seconds=this.value">
           </div>
           ${removeBtn}
+          ${calfPull ? pullPills('isoHold', side, idx, row, ISO_PULL_LEVELS) : `
           <div class="variant-pills set-row-assist">
             ${GRIP_LEVELS.map(v => `<button class="pill${row.grip === v ? ' active' : ''}" onclick="setCalfSetGrip('${side}',${idx},'${esc(v)}')">${h(v)}</button>`).join('')}
-          </div>
+          </div>`}
         </div>`;
     }
 
@@ -1414,9 +1453,13 @@ function addCalfSet(exercise, side) {
   }
   const rows = calfSetsState[exercise][side];
   const last = rows[rows.length - 1];
-  if (exercise === 'heelRaise') rows.push(side === 'left' ? { reps: '', assist: last?.assist || 'Moderate' } : { reps: '' });
+  if (exercise === 'heelRaise') rows.push(side !== 'left' ? { reps: '' }
+    : calfPull ? { reps: '', pull: last?.pull || lastCalfPull('heelRaiseLeft') }
+    : { reps: '', assist: last?.assist || 'Moderate' });
   else if (exercise === 'bigToe') rows.push({ seconds: '30' });
-  else if (exercise === 'isoHold') rows.push({ seconds: '', grip: last?.grip || lastCalfGrip(side) });
+  else if (exercise === 'isoHold') rows.push(calfPull
+    ? { seconds: '', pull: last?.pull || lastCalfPull(isoKey(side)) }
+    : { seconds: '', grip: last?.grip || lastCalfGrip(side) });
   else if (exercise === 'bentKnee') rows.push({ reps: '15', weight: last ? last.weight : '10' });
   renderSetRows(exercise, side);
 }
@@ -1436,6 +1479,11 @@ function setCalfSetAssist(idx, level) {
   renderSetRows('heelRaise', 'left');
 }
 
+function setCalfSetPull(exercise, side, idx, level) {
+  calfSetsState[exercise][side][idx].pull = level;
+  renderSetRows(exercise, side);
+}
+
 function setCalfSetGrip(side, idx, level) {
   calfSetsState.isoHold[side][idx].grip = level;
   renderSetRows('isoHold', side);
@@ -1448,9 +1496,10 @@ async function logCalfEntry() {
   const isA = type === 'A', isB = type === 'B';
   const b1 = block === 1, b2 = block === 2;
   const repsWeight = rows => rows.map(r => ({ reps: num(r.reps), weight: num(r.weight) })).filter(r => r.reps != null);
-  const holds = rows => rows.map(r => ({ seconds: num(r.seconds), grip: r.grip || null })).filter(r => r.seconds != null);
+  const pull = usesPull(dateStr);
+  const holds = rows => rows.map(r => pull ? { seconds: num(r.seconds), pull: r.pull || null } : { seconds: num(r.seconds), grip: r.grip || null }).filter(r => r.seconds != null);
 
-  const heelRaiseLeft   = isA ? calfSetsState.heelRaise.left.map(r => ({ reps: num(r.reps), assist: r.assist || null })).filter(r => r.reps != null) : [];
+  const heelRaiseLeft   = isA ? calfSetsState.heelRaise.left.map(r => pull ? { reps: num(r.reps), pull: r.pull || null } : { reps: num(r.reps), assist: r.assist || null }).filter(r => r.reps != null) : [];
   const heelRaiseRight  = isA ? calfSetsState.heelRaise.right.map(r => ({ reps: num(r.reps) })).filter(r => r.reps != null) : [];
   const bigToeLeft      = isA && b1 ? calfSetsState.bigToe.left.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
   const bigToeRight     = isA && b1 ? calfSetsState.bigToe.right.map(r => ({ seconds: num(r.seconds) })).filter(r => r.seconds != null) : [];
@@ -1568,59 +1617,63 @@ function renderCalfWeek() {
 function renderCalfChart() {
   if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
 
-  const aEntries = calfLogs
-    .filter(l => l.dayType === 'A-day' && (l.assistAvg != null || l.assist))
+  const isoEntries = calfLogs
+    .filter(l => (l.isoHoldLeft || []).length || (l.isoHoldRight || []).length)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const block = document.getElementById('calfChartBlock');
-  if (aEntries.length === 0) {
-    block.innerHTML = '<div class="chart-empty">No A-day entries yet</div>';
+  if (isoEntries.length === 0) {
+    block.innerHTML = '<div class="chart-empty">No iso hold entries yet</div>';
     return;
   }
   if (!document.getElementById('calfChart')) {
     block.innerHTML = '<div class="chart-wrap"><canvas id="calfChart"></canvas></div>';
   }
 
-  // Fill every scheduled A-day between first and last entry so missed A-days show as gaps
-  const first = new Date(aEntries[0].date + 'T00:00:00');
+  // Fill every scheduled A-day between first entry and today so missed A-days show as gaps
+  const first = new Date(isoEntries[0].date + 'T00:00:00');
   const last = new Date();
   const byDate = {};
-  aEntries.forEach(e => { byDate[e.date] = e; });
+  isoEntries.forEach(e => { byDate[e.date] = e; });
+  const best = arr => arr.length ? Math.max(...arr.map(s => s.seconds)) : null;
 
   const pts = [];
   for (let d = new Date(first); d <= last; d = addDays(d, 1)) {
     const ds = localDateKey(d);
     if (calfDayType(ds) !== 'A') continue;
     const e = byDate[ds];
-    const assistAvg = e ? (e.assistAvg != null ? e.assistAvg : (e.assist ? ASSIST_VALUE[e.assist] : null)) : null;
-    pts.push(e ? { date: ds, assist: e.assist, assistAvg, heelRaiseLeft: e.heelRaiseLeft || [] } : { date: ds, assist: null, assistAvg: null, heelRaiseLeft: [] });
+    const left = e?.isoHoldLeft || [], right = e?.isoHoldRight || [];
+    pts.push({ date: ds, logged: !!e, left, right, bestLeft: best(left), bestRight: best(right) });
   }
+
+  const side = (label, key, color) => ({
+    label,
+    data: pts.map(p => p[key]),
+    spanGaps: false,
+    borderColor: color,
+    backgroundColor: color + '20',
+    pointStyle: pts.map(p => p.logged ? 'circle' : 'crossRot'),
+    pointBackgroundColor: pts.map(p => p.logged ? color : VARIANT_MISSED_COLOR),
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    borderWidth: 2,
+    fill: false,
+    tension: 0.3,
+  });
 
   const ctx = document.getElementById('calfChart').getContext('2d');
   calfCharts.trend = new Chart(ctx, {
     type: 'line',
     data: {
       labels: pts.map(p => fmtDate(p.date)),
-      datasets: [{
-        data: pts.map(p => p.assistAvg),
-        spanGaps: false,
-        borderColor: '#5b8def',
-        backgroundColor: '#5b8def20',
-        pointStyle: pts.map(p => p.assistAvg != null ? 'circle' : 'crossRot'),
-        pointBackgroundColor: pts.map(p => p.assistAvg != null ? '#5b8def' : VARIANT_MISSED_COLOR),
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3,
-      }],
+      datasets: [side('Left', 'bestLeft', '#5b8def'), side('Right', 'bestRight', '#e8a020')],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
+        legend: { display: true, labels: { color: '#9b98a0', boxWidth: 10, font: { size: 11 } } },
         tooltip: {
           backgroundColor: '#141416',
           borderColor: '#2a2a30',
@@ -1630,10 +1683,9 @@ function renderCalfChart() {
           callbacks: {
             label: item => {
               const p = pts[item.dataIndex];
-              if (p.assistAvg == null) return 'Not logged';
-              const rounded = ASSIST_LEVELS[Math.round(p.assistAvg) - 1] || '';
-              const setsStr = p.heelRaiseLeft.map(s => s.assist).filter(Boolean).join(', ');
-              return `${rounded} (avg ${p.assistAvg.toFixed(2)})${setsStr ? ` · sets: ${setsStr}` : ''}`;
+              if (!p.logged) return 'Not logged';
+              const holds = item.datasetIndex === 0 ? p.left : p.right;
+              return `${item.dataset.label}: ${holds.length ? holds.map(fmtHold).join(', ') : '—'}`;
             },
           },
         },
@@ -1644,12 +1696,8 @@ function renderCalfChart() {
           grid: { color: '#1c1c20' },
         },
         y: {
-          min: 0.5, max: 4.5,
-          reverse: true, // Heavy at top so reducing assist trends downward
-          ticks: {
-            color: '#6b6870', font: { size: 10 }, stepSize: 1,
-            callback: v => ({ 1: 'Heavy', 2: 'Moderate', 3: 'Light', 4: 'Barely touching' }[v] || ''),
-          },
+          min: 0, max: 30,
+          ticks: { color: '#6b6870', font: { size: 10 }, stepSize: 10, callback: v => v + 's' },
           grid: { color: '#1c1c20' },
         },
       },
@@ -1657,11 +1705,20 @@ function renderCalfChart() {
   });
 }
 
+const fmtHold = s => (s.pull || s.grip) ? `${s.seconds}s (${s.pull || s.grip})` : `${s.seconds}s`;
+
+// Most common left heel-raise pull level, for the history summary
+function calfPullSummary(l) {
+  const counts = {};
+  (l.heelRaiseLeft || []).forEach(s => { if (s.pull) counts[s.pull] = (counts[s.pull] || 0) + 1; });
+  return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || '';
+}
+
 function renderCalfSetDetail(l) {
   const lines = [];
   const hrL = l.heelRaiseLeft || [], hrR = l.heelRaiseRight || [];
   if (hrL.length || hrR.length) {
-    const lStr = hrL.map(s => s.assist ? `${s.reps} (${s.assist})` : `${s.reps}`).join(', ');
+    const lStr = hrL.map(s => (s.pull || s.assist) ? `${s.reps} (${s.pull || s.assist})` : `${s.reps}`).join(', ');
     const rStr = hrR.map(s => s.reps).join(', ');
     lines.push(`Heel raise${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
   }
@@ -1677,7 +1734,7 @@ function renderCalfSetDetail(l) {
   }
   const ihL = l.isoHoldLeft || [], ihR = l.isoHoldRight || [];
   if (ihL.length || ihR.length) {
-    const fmt = arr => arr.map(s => s.grip ? `${s.seconds}s (${s.grip})` : `${s.seconds}s`).join(', ');
+    const fmt = arr => arr.map(fmtHold).join(', ');
     const lStr = fmt(ihL), rStr = fmt(ihR);
     lines.push(`Iso hold${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
   }
@@ -1698,6 +1755,7 @@ function renderCalfHistory() {
   }
   list.innerHTML = calfLogs.slice(0, 120).map(l => {
     const setDetail = renderCalfSetDetail(l);
+    const level = l.assist || calfPullSummary(l);
     return `
     <div class="hist-item">
       <div class="hist-head">
@@ -1705,7 +1763,7 @@ function renderCalfHistory() {
         <span class="hist-dow">${fmtDow(l.date)}</span>
       </div>
       <div class="hist-calf-row">
-        <span>${h(l.dayType)}${l.assist ? ` · <span class="hist-calf-assist">${h(l.assist)}</span>` : ''}</span>
+        <span>${h(l.dayType)}${level ? ` · <span class="hist-calf-assist">${h(level)}</span>` : ''}</span>
         ${l.priorActivity ? `<span>Prior: ${h(l.priorActivity)}</span>` : ''}
         ${l.soreness ? `<span>Soreness: ${h(l.soreness)}</span>` : ''}
       </div>
@@ -1763,7 +1821,7 @@ function exportCSV() {
 }
 
 function exportCalfCSV() {
-  const header = ['Date', 'DayType', 'Exercise', 'Side', 'Set', 'Reps', 'Seconds', 'Weight_kg', 'Assist', 'Grip', 'PriorActivity', 'Soreness'];
+  const header = ['Date', 'DayType', 'Exercise', 'Side', 'Set', 'Reps', 'Seconds', 'Weight_kg', 'Assist', 'Grip', 'Pull', 'PriorActivity', 'Soreness'];
   const rows = [header];
 
   const pushRows = (l, arr, exLabel, side, repsKey, secondsKey, weightKey) => {
@@ -1775,6 +1833,7 @@ function exportCalfCSV() {
         weightKey ? (s[weightKey] ?? '') : '',
         s.assist || '',
         s.grip || '',
+        s.pull || '',
         l.priorActivity || '',
         l.soreness || '',
       ]);

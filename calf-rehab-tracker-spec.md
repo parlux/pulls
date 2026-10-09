@@ -6,9 +6,9 @@ Use this as the spec for a small tracking web page/app.
 
 ### A-days — Mon, Tue, Thu, Fri
 
-**1. Two-up, one-down heel raise** — Left 5 × 4, Right 2 × 6. Log assist level (left) and clean reps per set.
+**1. Two-up, one-down heel raise** — Left 5 × 4, Right 2 × 6. Log clean reps per set. From 2026-10-10 the left side is assisted by pulling on the doorframe (not the right leg): log pull level per set — Heavy / Moderate / Light / Balance only / Fingertips. (Before that: right-leg assist level.)
 
-**2. Mid-height iso hold (holding doorframe)** — Left 3 holds, Right 2. Rise to about halfway, hold until you start sinking, 30 s cap. Log time and grip (Full hand / Fingers / Fingertips / One finger). Once 30 s is reached with a lighter grip, move to the next grip down.
+**2. Mid-height iso hold (holding doorframe)** — Left 3 holds, Right 2. Rise to about halfway, hold until you start sinking, 30 s cap. Log time and pull level — from 2026-10-10: Heavy / Moderate / Light / Fingertips / Balance only (before that: grip — Full hand / Fingers / Fingertips / One finger). Once 30 s is reached, move to the next lighter level. Hold time is the benchmark: the Calf tab charts the best hold per side per A-day.
 
 ### B-days — Wed, Sat
 
@@ -18,7 +18,7 @@ Bent-knee heel raise, 10 kg, 2 × 15 each leg.
 
 ### Tracker notes
 
-Entries dated before 2026-10-05 use the Block 1 form below; Block 2 adds Airtable fields `IsoHoldLeft_Sets`, `IsoHoldRight_Sets` (`{seconds, grip}`) and `BentKneeLeft_Sets`, `BentKneeRight_Sets` (`{reps, weight}`). Block 1 fields are kept for history.
+Entries dated before 2026-10-05 use the Block 1 form below; Block 2 adds Airtable fields `IsoHoldLeft_Sets`, `IsoHoldRight_Sets` (`{seconds, grip}`) and `BentKneeLeft_Sets`, `BentKneeRight_Sets` (`{reps, weight}`). Block 1 fields are kept for history. From 2026-10-10, `HeelRaiseLeft_Sets` stores `{reps, pull}` and iso holds store `{seconds, pull}`; `RightAssist`/`RightAssistAvg` are left empty for those entries.
 
 ## Program — Block 1 (2026-09-19 → 2026-10-04)
 
