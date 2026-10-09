@@ -485,6 +485,8 @@ const EXERCISES = [
   { key: 'pushup', label: 'Push Ups',  color: '#e8a020', variants: ['Incline', 'Knee', 'Full', 'Decline', 'Weighted'] },
   { key: 'deadbug', label: 'Deadbugs', color: '#3ab06a', variants: ['Bent-Knee', 'Straight-Leg', 'Iso Hold', 'Weighted'] },
   { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['No Jump', 'No Pushup', 'Full'] },
+  { key: 'splitsquat', label: 'Split Squats', color: '#9b6ef0', variants: ['Bodyweight', 'Rear-Foot Elevated', 'Weighted'] },
+  { key: 'stepup', label: 'Step Ups',  color: '#2fb5b5', variants: ['Milk Crate', 'Bench', 'Weighted'] },
 ];
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
@@ -503,6 +505,8 @@ const defaultState = () => ({
   pushup: { variant: 'Knee',          sets: '1', reps: '' },
   deadbug: { variant: 'Bent-Knee',    sets: '1', reps: '' },
   burpee: { variant: 'No Jump',       sets: '1', reps: '' },
+  splitsquat: { variant: 'Bodyweight', sets: '1', reps: '' },
+  stepup: { variant: 'Milk Crate',    sets: '1', reps: '' },
 });
 let state = defaultState();
 
@@ -685,7 +689,11 @@ async function load(background = false) {
     console.warn('Airtable unavailable, using cache:', e);
     setSync('err', 'Offline (cached)');
     const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) logs = JSON.parse(cached);
+    if (cached) {
+      logs = JSON.parse(cached);
+      // Entries cached before an exercise was added lack its key
+      logs.forEach(l => EXERCISES.forEach(ex => { l[ex.key] ??= { variant: '', sets: null, reps: null }; }));
+    }
     const calfCached = localStorage.getItem(CALF_CACHE_KEY);
     if (calfCached) calfLogs = JSON.parse(calfCached);
   } finally {
