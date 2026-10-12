@@ -178,6 +178,15 @@
   .set-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); }
   .set-dots i.filled { background: var(--accent); border-color: var(--accent); }
   .sheet .variant-pills { padding: 0; }
+  .sheet-target { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sheet-target b { color: var(--text); }
+  .sheet-target .grow { flex: 1; }
+  .sheet-target button {
+    min-width: 36px; height: 32px; padding: 0 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--text);
+    font-family: var(--font-body); font-size: 13px; font-weight: 700;
+  }
+  .sheet-target button.primary { border-color: var(--accent); color: var(--accent); }
   .stepper { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .stepper-btn {
     width: 68px; height: 68px; border-radius: 50%; flex-shrink: 0;
@@ -417,6 +426,7 @@
       </div>
       <div class="set-dots" id="sheetDots"></div>
     </div>
+    <div class="sheet-target" id="sheetTarget"></div>
     <div class="variant-pills" id="sheetVariants"></div>
     <div class="stepper">
       <button class="stepper-btn" onclick="stepReps(-1)" aria-label="One fewer rep">−</button>
@@ -524,6 +534,10 @@ const AT_CALF_TABLE = 'CalfRehab';
 const AT_CALF_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_CALF_TABLE)}`;
 const CALF_CACHE_KEY = 'greyskull_calf_v1_cache';
 
+const AT_TARGETS_URL = `https://api.airtable.com/v0/${AT_BASE}/Targets`;
+const TARGETS_CACHE_KEY = 'greyskull_targets_v1_cache';
+const MAX_SETS = 5, LADDER_RESET_SETS = 3, BUMP_AFTER_DAYS = 7;
+
 const CALF_SCHEDULE = ['Off', 'A', 'A', 'B', 'A', 'A', 'B']; // Date.getDay() index, Sun..Sat
 const CALF_DAYTYPE_LABEL = { A: 'A-day', B: 'B-day', Off: 'Off' };
 const ASSIST_LEVELS = ['Heavy', 'Moderate', 'Light', 'Barely touching'];
@@ -564,6 +578,7 @@ let charts = {};
 let chartRange = '1m';
 let progressEx = 'chinup';
 let calfLogs = [];
+let targets = []; // { id, exercise, sets, reps, effectiveDate, timestamp }, newest first
 let calfCharts = {};
 let calfPull = false; // form date is on/after CALF_PULL_START
 let calfSetsState = {
@@ -647,6 +662,36 @@ async function updateLog(log) {
 }
 
 async function deleteLog(id) { await atFetch('/' + id, { method: 'DELETE' }); }
+
+// ─── TARGETS AIRTABLE API ─────────────────────────────────────────────────────
+async function fetchAllTargets(signal) {
+  let records = [], offset = null;
+  do {
+    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
+    if (offset) p.set('offset', offset);
+    const data = await atFetch('?' + p, { signal }, AT_TARGETS_URL);
+    records = records.concat(data.records);
+    offset = data.offset || null;
+  } while (offset);
+  return records.map(r => ({
+    id: r.id,
+    exercise: r.fields.Exercise || '',
+    sets: r.fields.Sets ?? null,
+    reps: r.fields.Reps ?? null,
+    effectiveDate: r.fields.EffectiveDate || '',
+    timestamp: r.fields.Timestamp || '',
+  }));
+}
+
+async function createTarget(t) {
+  const data = await atFetch('', {
+    method: 'POST',
+    body: JSON.stringify({ records: [{ fields: {
+      Exercise: t.exercise, Sets: t.sets, Reps: t.reps, EffectiveDate: t.effectiveDate, Timestamp: t.timestamp,
+    } }] }),
+  }, AT_TARGETS_URL);
+  return data.records[0].id;
+}
 
 // ─── CALF AIRTABLE API ────────────────────────────────────────────────────────
 async function fetchAllCalfLogs(signal) {
@@ -749,14 +794,16 @@ async function load(background = false) {
   loadController = controller;
   setSync('syncing', 'Syncing...');
   try {
-    [logs, calfLogs] = await Promise.all([
+    [logs, calfLogs, targets] = await Promise.all([
       fetchAllLogs(controller.signal),
       fetchAllCalfLogs(controller.signal),
+      fetchAllTargets(controller.signal),
     ]);
     if (controller.signal.aborted) return;
     setSync('ok', 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
+    localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
   } catch (e) {
     if (controller.signal.aborted) return;
     console.warn('Airtable unavailable, using cache:', e);
@@ -769,6 +816,8 @@ async function load(background = false) {
     }
     const calfCached = localStorage.getItem(CALF_CACHE_KEY);
     if (calfCached) calfLogs = JSON.parse(calfCached);
+    const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
+    if (targetsCached) targets = JSON.parse(targetsCached);
   } finally {
     if (loadController === controller) loadController = null;
   }
@@ -806,7 +855,96 @@ function showView(name) {
 }
 
 // ─── TARGET ───────────────────────────────────────────────────────────────────
-function getLastSessionTarget(key) {
+// Set ladder: add a set up to MAX_SETS, then drop to LADDER_RESET_SETS with one more rep.
+// Targets only move when the user bumps them.
+function nextStep({ sets, repsPerSet }) {
+  return sets < MAX_SETS ? { sets: sets + 1, repsPerSet } : { sets: LADDER_RESET_SETS, repsPerSet: repsPerSet + 1 };
+}
+
+function prevStep({ sets, repsPerSet }) {
+  if (sets > LADDER_RESET_SETS || (sets > 1 && repsPerSet === 1)) return { sets: sets - 1, repsPerSet };
+  if (repsPerSet > 1) return { sets: MAX_SETS, repsPerSet: repsPerSet - 1 };
+  return { sets, repsPerSet };
+}
+
+function fmtTarget(t) { return `${t.sets} × ${t.repsPerSet}`; }
+
+// Latest stored target effective on or before `date` (targets is newest first)
+function storedTarget(key, date) {
+  const t = targets.find(t => t.exercise === key && t.effectiveDate <= date && t.sets && t.reps);
+  return t ? { sets: t.sets, repsPerSet: t.reps } : null;
+}
+
+function getTarget(key) {
+  return storedTarget(key, localDateKey(new Date())) || lastSessionTarget(key);
+}
+
+// Calendar days (inclusive of today) the target has been hit with no missed session,
+// counting back no further than when the stored target took effect. Today counts only once hit.
+function streakDays(key, target) {
+  const today = localDateKey(new Date());
+  // Start of the current target: the earliest of the latest run of rows with the same value,
+  // skipping rows overridden by a newer row before they took effect (e.g. an undone bump)
+  let since = '', minEff = '\uffff';
+  for (const t of targets) {
+    if (t.exercise !== key || t.effectiveDate > today || !t.sets || !t.reps || t.effectiveDate >= minEff) continue;
+    minEff = t.effectiveDate;
+    if (t.sets !== target.sets || t.reps !== target.repsPerSet) break;
+    since = t.effectiveDate;
+  }
+  const byDate = {};
+  logs.forEach(l => { const e = l[key]; if (e?.sets != null && e?.reps != null) (byDate[l.date] ??= []).push(e); });
+  const hit = d => byDate[d].reduce((n, e) => n + (e.reps >= target.repsPerSet ? (e.sets || 1) : 0), 0) >= target.sets;
+  let start = null;
+  for (const d of Object.keys(byDate).sort().reverse()) {
+    if (d < since) break;
+    if (!hit(d)) { if (d === today) continue; break; }
+    start = d;
+  }
+  if (!start) return 0;
+  const end = byDate[today] && hit(today) ? today : localDateKey(addDays(new Date(), -1));
+  return Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
+}
+
+// A bump made after finishing today's target, waiting for tomorrow
+function upcomingTarget(key) {
+  const t = storedTarget(key, localDateKey(addDays(new Date(), 1)));
+  const cur = getTarget(key);
+  return t && cur && (t.sets !== cur.sets || t.repsPerSet !== cur.repsPerSet) ? t : null;
+}
+
+async function saveTarget(key, t, effectiveDate) {
+  abortLoad();
+  setSync('syncing', 'Saving...');
+  const row = { exercise: key, sets: t.sets, reps: t.repsPerSet, effectiveDate, timestamp: new Date().toISOString() };
+  targets.unshift(row);
+  try {
+    row.id = await createTarget(row);
+    setSync('ok', 'Saved ✓');
+  } catch (e) {
+    console.error(e);
+    row.id = localId();
+    setSync('err', 'Saved locally');
+  }
+  localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
+}
+
+// Before today's target is done: step today's target up/down. After: queue (or undo) tomorrow's bump.
+async function bumpTarget(key, dir) {
+  const cur = getTarget(key) || { sets: 1, repsPerSet: defaultReps(key) };
+  const today = localDateKey(new Date());
+  if (todaySetsFor(key) >= cur.sets) {
+    // dir < 0 undoes a queued bump by re-saving today's target for tomorrow
+    await saveTarget(key, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
+  } else {
+    const t = dir > 0 ? nextStep(cur) : prevStep(cur);
+    state[key].reps = String(t.repsPerSet);
+    await saveTarget(key, t, today);
+  }
+  renderCards();
+}
+
+function lastSessionTarget(key) {
   const today = localDateKey(new Date());
   const pastDates = [...new Set(
     logs
@@ -843,7 +981,7 @@ function restRemaining(key) {
 }
 
 function defaultReps(key) {
-  return num(state[key].reps) || getLastSessionTarget(key)?.repsPerSet || lastEntry(key)?.[key].reps || 5;
+  return getTarget(key)?.repsPerSet || num(state[key].reps) || lastEntry(key)?.[key].reps || 5;
 }
 
 function ringHtml(done, target) {
@@ -862,7 +1000,7 @@ function renderCards() {
 
   const rows = EXERCISES.map(ex => {
     const done = todaySetsFor(ex.key);
-    const target = getLastSessionTarget(ex.key);
+    const target = getTarget(ex.key);
     const rest = restRemaining(ex.key);
     if (target) { totalTarget += target.sets; totalDone += Math.min(done, target.sets); }
     const status = target && done >= target.sets ? 'done' : (rest > 0 ? 'rest' : 'ready');
@@ -875,7 +1013,7 @@ function renderCards() {
       return `<button class="ex-row done" onclick="openLogSheet('${ex.key}')">
           <span class="ex-dot" style="background:${ex.color}"></span>
           <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span></span>
-          <span class="ex-row-sub">${h(v)} · ${done} sets</span>
+          <span class="ex-row-sub">${h(v)} · ${done} sets${upcomingTarget(ex.key) ? ` · ↑ ${fmtTarget(upcomingTarget(ex.key))} next` : ''}</span>
           <span class="ex-row-check">✓</span>
         </button>`;
     }
@@ -929,7 +1067,7 @@ function renderLogSheet() {
   const ex = EXERCISES.find(e => e.key === key);
   const s = state[key];
   const done = todaySetsFor(key);
-  const target = getLastSessionTarget(key);
+  const target = getTarget(key);
   const reps = num(s.reps);
 
   document.getElementById('sheetTitle').textContent = ex.label;
@@ -939,6 +1077,17 @@ function renderLogSheet() {
   const last = lastEntry(key);
   if (last) parts.push(`last ${last[key].reps} reps, ${timeSinceLastSet(key)}`);
   document.getElementById('sheetSub').textContent = parts.join(' · ');
+
+  const pending = upcomingTarget(key);
+  const isDone = target && done >= target.sets;
+  const streak = target ? streakDays(key, target) : 0;
+  document.getElementById('sheetTarget').innerHTML = isDone && pending
+    ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="bumpTarget('${key}',-1)">Undo</button>`
+    : isDone && streak >= BUMP_AFTER_DAYS
+    ? `<span class="grow">A week at ${fmtTarget(target)}. Felt easy? Next time <b>${fmtTarget(nextStep(target))}</b></span><button class="primary" onclick="bumpTarget('${key}',1)">Bump</button>`
+    : `${isDone ? '' : `<button onclick="bumpTarget('${key}',-1)" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
+       <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · day ${Math.min(streak + (isDone ? 0 : 1), BUMP_AFTER_DAYS)} of ${BUMP_AFTER_DAYS}` : ''}</span>
+       <button onclick="bumpTarget('${key}',1)" aria-label="Harder target">+</button>`;
 
   document.getElementById('sheetDots').innerHTML = target
     ? Array.from({ length: Math.max(target.sets, done) }, (_, i) => `<i class="${i < done ? 'filled' : ''}"></i>`).join('')
