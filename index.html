@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c0e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Greyskull">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Greyskull Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -29,13 +35,14 @@
     color: var(--text);
     font-family: var(--font-body);
     min-height: 100vh;
-    padding: 0 0 72px;
+    padding: 0 0 calc(72px + env(safe-area-inset-bottom, 0px));
   }
 
   /* ─── TOP NAV ─── */
   .top-nav {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 18px 24px; border-bottom: 1px solid var(--border);
+    padding: 18px 24px; padding-top: calc(18px + env(safe-area-inset-top, 0px));
+    border-bottom: 1px solid var(--border);
     position: sticky; top: 0; background: var(--bg); z-index: 100;
   }
   .top-nav h1 { font-family: var(--font-display); font-size: 26px; letter-spacing: 2px; color: var(--accent); }
@@ -66,6 +73,7 @@
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--surface); border-top: 1px solid var(--border);
     display: flex; z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .tab-btn {
     flex: 1; padding: 10px 8px 14px;
@@ -259,39 +267,43 @@
   .export-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ─── PROGRESS VIEW ─── */
-  .stat-strip {
-    display: flex; border: 1px solid var(--border);
-    border-radius: 8px; overflow: hidden; margin-bottom: 20px;
-  }
-  .stat-cell {
-    flex: 1; padding: 14px 12px; text-align: center;
-    border-right: 1px solid var(--border);
-  }
-  .stat-cell:last-child { border-right: none; }
-  .stat-val { font-family: var(--font-display); font-size: 28px; color: var(--accent); line-height: 1; }
-  .stat-val.green { color: var(--green); }
-  .stat-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
-
   .week-strip { display: flex; gap: 6px; margin-bottom: 24px; }
-
-  .range-strip { display: flex; gap: 6px; margin-bottom: 20px; }
-  .range-strip .pill { flex: 1; text-align: center; }
   .week-day { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: 1; }
   .week-dot { width: 100%; max-width: 36px; aspect-ratio: 1; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface); }
   .week-dot.trained { background: var(--accent); border-color: var(--accent); }
   .week-dot-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 
-  .chart-block { margin-bottom: 28px; }
-  .chart-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .chart-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
-  .chart-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
-  .legend-chip {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--muted); background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 4px; padding: 3px 8px 3px 6px;
+  .ex-pills { margin: 0 -20px 14px; padding: 0 20px; }
+  .ex-pills .pill { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; font-size: 13px; }
+  .ex-pills .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .seg {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px;
   }
-  .legend-chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .seg button {
+    min-height: 32px; border: none; border-radius: 7px; background: none; cursor: pointer; color: var(--muted);
+    font-family: var(--font-body); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .seg button.active { background: var(--border); color: var(--text); }
+
+  .focus-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .focus-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
+  .focus-val { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+  .focus-val b { font-family: var(--font-display); font-weight: 400; font-size: 44px; line-height: 0.9; font-variant-numeric: tabular-nums; }
+  .focus-val span { font-size: 13px; font-weight: 600; }
+  .focus-delta { font-size: 12px; font-weight: 700; color: var(--muted); text-align: right; }
+  .focus-delta.up { color: var(--green); }
+  .focus-delta.down { color: var(--accent2); }
+  .focus-chart { position: relative; height: 220px; margin-bottom: 8px; }
+  .focus-bars { position: relative; height: 44px; margin: 4px 0 16px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .kpi .focus-lbl { font-size: 9px; letter-spacing: 0.12em; }
+  .kpi b { font-family: var(--font-display); font-weight: 400; font-size: 28px; line-height: 0.9; font-variant-numeric: tabular-nums; }
+  .kpi span:last-child { font-size: 11px; color: var(--muted); }
+
+  .chart-block { margin-bottom: 28px; }
   .chart-wrap { position: relative; height: 160px; }
   .chart-empty { height: 80px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; }
 
@@ -349,8 +361,9 @@
   @keyframes slideIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
 
   @media (max-width: 440px) {
-    .top-nav { padding: 14px 16px; }
+    .top-nav { padding: 14px 16px; padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
     .container { padding: 16px; }
+    .ex-pills { margin: 0 -16px 14px; padding: 0 16px; }
   }
 </style>
 </head>
@@ -429,30 +442,14 @@
 <!-- ─── PROGRESS VIEW ─── -->
 <div class="view" id="viewProgress">
   <div class="container">
-    <div class="stat-strip">
-      <div class="stat-cell">
-        <div class="stat-val" id="statTotal">0</div>
-        <div class="stat-lbl">Days</div>
-      </div>
-      <div class="stat-cell">
-        <div class="stat-val green" id="statStreak">0</div>
-        <div class="stat-lbl">Streak</div>
-      </div>
-      <div class="stat-cell">
-        <div class="stat-val" id="statLast">—</div>
-        <div class="stat-lbl">Last</div>
-      </div>
+    <div class="variant-pills ex-pills" id="exPills"></div>
+    <div class="seg" id="rangeStrip">
+      <button data-range="1w" onclick="setChartRange('1w')">1W</button>
+      <button class="active" data-range="1m" onclick="setChartRange('1m')">1M</button>
+      <button data-range="3m" onclick="setChartRange('3m')">3M</button>
+      <button data-range="all" onclick="setChartRange('all')">All</button>
     </div>
-
-    <div class="week-strip" id="weekStrip"></div>
-
-    <div class="range-strip" id="rangeStrip">
-      <button class="pill" data-range="1w" onclick="setChartRange('1w')">1W</button>
-      <button class="pill active" data-range="1m" onclick="setChartRange('1m')">1M</button>
-      <button class="pill" data-range="3m" onclick="setChartRange('3m')">3M</button>
-      <button class="pill" data-range="all" onclick="setChartRange('all')">All</button>
-    </div>
-    <div id="chartSections"></div>
+    <div id="progressBody"></div>
   </div>
 </div>
 
@@ -565,6 +562,7 @@ const EXERCISES = [
 let logs = [];
 let charts = {};
 let chartRange = '1m';
+let progressEx = 'chinup';
 let calfLogs = [];
 let calfCharts = {};
 let calfPull = false; // form date is on/after CALF_PULL_START
@@ -736,6 +734,8 @@ function setSync(status, label) {
   document.getElementById('syncLabel').textContent = label;
   document.getElementById('refreshBtn').classList.toggle('spinning', status === 'syncing');
 }
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 let loadController = null;
@@ -1123,51 +1123,26 @@ function renderHistory() {
 
 // ─── PROGRESS RENDER ──────────────────────────────────────────────────────────
 function renderProgress() {
-  renderStats();
-  renderWeek();
-  renderCharts();
+  renderExPills();
+  renderFocus();
 }
 
-function renderStats() {
-  const uniqueDays = new Set(logs.map(l => l.date).filter(Boolean)).size;
-  document.getElementById('statTotal').textContent = uniqueDays;
-  document.getElementById('statStreak').textContent = calcStreak();
-  if (logs.length > 0) {
-    document.getElementById('statLast').textContent = fmtDate(logs[0].date);
-  }
+function renderExPills() {
+  document.getElementById('exPills').innerHTML = EXERCISES.map(ex => `
+    <button class="pill${ex.key === progressEx ? ' active' : ''}" onclick="setProgressEx('${ex.key}')">
+      <span class="dot" style="background:${ex.color}"></span>${ex.label}
+    </button>`).join('');
 }
 
-function calcStreak() {
-  const dates = new Set(logs.map(l => l.date).filter(Boolean));
-  const today = localDateKey(new Date());
-  const yesterday = localDateKey(addDays(new Date(), -1));
-  if (!dates.has(today) && !dates.has(yesterday)) return 0;
-  let count = 0;
-  let d = dates.has(today) ? new Date() : addDays(new Date(), -1);
-  while (dates.has(localDateKey(d))) { count++; d = addDays(d, -1); }
-  return count;
-}
-
-function renderWeek() {
-  const strip = document.getElementById('weekStrip');
-  strip.innerHTML = '';
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const trained = new Set(logs.map(l => l.date));
-  for (let i = 6; i >= 0; i--) {
-    const d = addDays(new Date(), -i);
-    const ds = localDateKey(d);
-    const wrap = document.createElement('div'); wrap.className = 'week-day';
-    const dot = document.createElement('div'); dot.className = 'week-dot' + (trained.has(ds) ? ' trained' : '');
-    const lbl = document.createElement('div'); lbl.className = 'week-dot-lbl';
-    lbl.textContent = i === 0 ? 'Today' : days[d.getDay()];
-    wrap.appendChild(dot); wrap.appendChild(lbl); strip.appendChild(wrap);
-  }
+function setProgressEx(key) {
+  progressEx = key;
+  renderProgress();
 }
 
 function setChartRange(range) {
   chartRange = range;
-  document.querySelectorAll('#rangeStrip .pill').forEach(b => b.classList.toggle('active', b.dataset.range === range));
-  renderCharts();
+  document.querySelectorAll('#rangeStrip button').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  renderFocus();
 }
 
 // ─── VARIANT COLORS (Progress charts) ─────────────────────────────────────────
@@ -1182,21 +1157,59 @@ function variantColor(ex, variant) {
   return VARIANT_PALETTE[(idx < 0 ? 0 : idx) % VARIANT_PALETTE.length];
 }
 
-function segmentColor(ex, pts, ctx) {
-  const p0 = pts[ctx.p0DataIndex];
-  const p1 = pts[ctx.p1DataIndex];
-  if (!p0.variant || !p1.variant) return VARIANT_MISSED_COLOR;
-  return variantColor(ex, p1.variant);
+// Per-day totals for `ex` with from <= date <= to: sum sets×reps across all records per day
+function dailySessions(ex, from, to) {
+  const byDate = {};
+  logs
+    .filter(l => l.date >= from && l.date <= to && l[ex.key].sets != null && l[ex.key].reps != null)
+    .forEach(l => {
+      const d = l.date;
+      if (!byDate[d]) byDate[d] = { date: d, total: 0, sets: 0, maxReps: 0, mixed: false, variant: l[ex.key].variant };
+      if (byDate[d].sets && byDate[d].maxReps !== l[ex.key].reps) byDate[d].mixed = true;
+      byDate[d].total += l[ex.key].sets * l[ex.key].reps;
+      byDate[d].sets += l[ex.key].sets;
+      byDate[d].maxReps = Math.max(byDate[d].maxReps, l[ex.key].reps);
+      byDate[d].variant = l[ex.key].variant; // use most recent variant for label
+    });
+  return byDate;
 }
 
-function renderCharts() {
+function fmtScheme(p) {
+  return p.mixed ? `${p.sets} sets · best ${p.maxReps}` : `${p.sets}×${p.maxReps}`;
+}
+
+// Shades each run of same-variant sessions and labels it at the top
+const variantBandsPlugin = {
+  id: 'variantBands',
+  beforeDatasetsDraw(chart, _args, opts) {
+    const { ctx, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
+    const runs = opts.runs;
+    ctx.save();
+    runs.forEach((run, i) => {
+      const x0 = i === 0 ? left : (x.getPixelForValue(runs[i - 1].end) + x.getPixelForValue(run.start)) / 2;
+      const x1 = i === runs.length - 1 ? right : (x.getPixelForValue(run.end) + x.getPixelForValue(runs[i + 1].start)) / 2;
+      ctx.fillStyle = run.color + '14';
+      ctx.fillRect(x0, top, x1 - x0, bottom - top);
+      ctx.font = '700 9px "Instrument Sans", sans-serif';
+      const label = run.variant.toUpperCase();
+      if (ctx.measureText(label).width + 12 <= x1 - x0) {
+        ctx.fillStyle = run.color;
+        ctx.fillText(label, x0 + 6, top + 12);
+      }
+    });
+    ctx.restore();
+  },
+};
+
+function renderFocus() {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
 
-  const sections = document.getElementById('chartSections');
-  sections.innerHTML = '';
+  const ex = EXERCISES.find(e => e.key === progressEx) || EXERCISES[0];
+  const body = document.getElementById('progressBody');
 
   const todayDate = new Date();
+  const today = localDateKey(todayDate);
   let cutoffDate;
   if (chartRange === 'all') {
     const earliest = logs.reduce((min, l) => (l.date && (!min || l.date < min)) ? l.date : min, null);
@@ -1207,126 +1220,159 @@ function renderCharts() {
   }
   const cutoff = localDateKey(cutoffDate);
 
-  EXERCISES.forEach(ex => {
-    // Aggregate by date: sum sets×reps across all records per day
-    const byDate = {};
-    logs
-      .filter(l => l.date >= cutoff && l[ex.key].sets != null && l[ex.key].reps != null)
-      .forEach(l => {
-        const d = l.date;
-        if (!byDate[d]) byDate[d] = { date: d, total: 0, sets: 0, maxReps: 0, mixed: false, variant: l[ex.key].variant };
-        if (byDate[d].sets && byDate[d].maxReps !== l[ex.key].reps) byDate[d].mixed = true;
-        byDate[d].total += l[ex.key].sets * l[ex.key].reps;
-        byDate[d].sets += l[ex.key].sets;
-        byDate[d].maxReps = Math.max(byDate[d].maxReps, l[ex.key].reps);
-        byDate[d].variant = l[ex.key].variant; // use most recent variant for label
-      });
-    const hasData = Object.keys(byDate).length > 0;
+  const byDate = dailySessions(ex, cutoff, today);
+  const sessions = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Fill every day in range so missed days show as 0 instead of being skipped
-    const pts = [];
-    for (let d = new Date(cutoffDate); d <= todayDate; d = addDays(d, 1)) {
-      const ds = localDateKey(d);
-      pts.push(byDate[ds] || { date: ds, total: 0, sets: 0, maxReps: 0, mixed: false, variant: '' });
-    }
+  if (!sessions.length) {
+    body.innerHTML = `
+      <div class="focus-head"><div class="focus-lbl">${ex.label} · best reps per set</div></div>
+      <div class="chart-empty">No ${ex.label.toLowerCase()} logged in this range</div>`;
+    return;
+  }
 
-    const variantsInRange = ex.variants.filter(v => Object.values(byDate).some(d => d.variant === v));
-    const legendHtml = variantsInRange.map(v =>
-      `<span class="legend-chip"><span class="dot" style="background:${variantColor(ex, v)}"></span>${h(v)}</span>`
-    ).join('');
+  // Every day in range, so the x axis is time-true; missed days are gaps the line spans
+  const days = [];
+  for (let d = new Date(cutoffDate); d <= todayDate; d = addDays(d, 1)) days.push(localDateKey(d));
+  const pts = days.map(ds => byDate[ds] || null);
 
-    const block = document.createElement('div');
-    block.className = 'chart-block';
-    block.innerHTML = `
-      <div class="chart-head">
-        <span class="chart-title">${ex.label}</span>
-        <div class="chart-legend">${legendHtml}</div>
+  // Runs of consecutive sessions on the same variant
+  const runs = [];
+  pts.forEach((p, i) => {
+    if (!p) return;
+    const last = runs[runs.length - 1];
+    if (last && last.variant === p.variant) last.end = i;
+    else runs.push({ variant: p.variant, color: variantColor(ex, p.variant), start: i, end: i });
+  });
+
+  const latest = sessions[sessions.length - 1];
+  const current = runs[runs.length - 1];
+  const runStart = pts[current.start];
+  const delta = latest.maxReps - runStart.maxReps;
+  const deltaWhen = runs.length > 1 ? 'since switching'
+    : { '1w': 'this week', '1m': 'this month', '3m': 'in 3 months', all: 'all time' }[chartRange];
+  const deltaText = delta === 0 ? `No change ${deltaWhen}` : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} ${deltaWhen}`;
+
+  const onVariant = sessions.filter(s => s.variant === latest.variant);
+  const best = onVariant.reduce((b, s) => s.maxReps >= b.maxReps ? s : b, onVariant[0]);
+
+  const volume = sessions.reduce((sum, s) => sum + s.total, 0);
+  let volumeSub = 'all time';
+  if (chartRange !== 'all') {
+    const prior = Object.values(dailySessions(ex, localDateKey(addDays(cutoffDate, -days.length)), localDateKey(addDays(cutoffDate, -1))))
+      .reduce((sum, s) => sum + s.total, 0);
+    volumeSub = prior ? `${volume >= prior ? '▲' : '▼'} ${Math.abs(Math.round((volume - prior) / prior * 100))}% vs prior` : 'no prior data';
+  }
+
+  body.innerHTML = `
+    <div class="focus-head">
+      <div>
+        <div class="focus-lbl">${ex.label} · best reps per set</div>
+        <div class="focus-val"><b>${latest.maxReps}</b><span style="color:${variantColor(ex, latest.variant)}">${h(latest.variant)}</span></div>
       </div>
-      ${!hasData
-        ? `<div class="chart-empty">No data yet</div>`
-        : `<div class="chart-wrap"><canvas id="chart-${ex.key}"></canvas></div>`
-      }`;
-    sections.appendChild(block);
+      <span class="focus-delta ${delta > 0 ? 'up' : delta < 0 ? 'down' : ''}">${deltaText}</span>
+    </div>
+    <div class="focus-chart"><canvas id="focusChart"></canvas></div>
+    <div class="focus-lbl">Total reps per session</div>
+    <div class="focus-bars"><canvas id="focusBars"></canvas></div>
+    <div class="kpis">
+      <div class="kpi"><span class="focus-lbl">Best set</span><b>${best.mixed ? best.maxReps : `${best.sets}×${best.maxReps}`}</b><span>${h(best.variant)} · ${fmtDate(best.date)}</span></div>
+      <div class="kpi"><span class="focus-lbl">Volume</span><b>${volume}</b><span>${volumeSub}</span></div>
+      <div class="kpi"><span class="focus-lbl">Sessions</span><b>${sessions.length}</b><span>of ${days.length} days</span></div>
+    </div>`;
 
-    if (!hasData) return;
+  const labels = days.map(fmtDate);
+  const lastIdx = pts.length - 1 - [...pts].reverse().findIndex(Boolean);
+  const dense = pts.length > 45;
+  const fixedYWidth = scale => { scale.width = 28; };
+  const tooltip = {
+    backgroundColor: '#141416',
+    borderColor: '#2a2a30',
+    borderWidth: 1,
+    titleColor: '#e8e6e0',
+    bodyColor: '#9b98a0',
+    displayColors: false,
+  };
 
-    const ctx = document.getElementById('chart-' + ex.key).getContext('2d');
-    charts[ex.key] = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: pts.map(p => fmtDate(p.date)),
-        datasets: [{
-          data: pts.map(p => p.maxReps),
-          yAxisID: 'y',
-          borderColor: ex.color,
-          backgroundColor: ex.color + '20',
-          pointBackgroundColor: pts.map(p => variantColor(ex, p.variant)),
-          pointBorderColor: pts.map(p => variantColor(ex, p.variant)),
-          pointStyle: pts.map(p => p.variant ? 'circle' : 'crossRot'),
-          pointRadius: pts.length > 45 ? 0 : 4,
-          pointHoverRadius: 6,
-          borderWidth: 2,
-          segment: { borderColor: ctx => segmentColor(ex, pts, ctx) },
-          fill: true,
-          tension: 0.3,
-        }, {
-          data: pts.map(p => p.total),
-          yAxisID: 'y1',
-          borderColor: ex.color + '66',
-          borderDash: [4, 4],
-          borderWidth: 1.5,
-          pointRadius: 0,
-          pointHoverRadius: 0,
-          fill: false,
-          tension: 0.3,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#141416',
-            borderColor: '#2a2a30',
-            borderWidth: 1,
-            titleColor: '#e8e6e0',
-            bodyColor: '#9b98a0',
-            usePointStyle: true,
-            filter: item => item.datasetIndex === 0,
-            callbacks: {
-              label: item => {
-                const p = pts[item.dataIndex];
-                if (p.sets === 0) return 'Missed day';
-                const scheme = p.mixed
-                  ? `${p.sets} set${p.sets !== 1 ? 's' : ''} · best ${p.maxReps}`
-                  : `${p.sets}×${p.maxReps}`;
-                return `${scheme} · ${p.total} total · ${p.variant}`;
-              },
+  charts.focus = new Chart(document.getElementById('focusChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: pts.map(p => p ? p.maxReps : null),
+        spanGaps: true,
+        borderWidth: 2.2,
+        tension: 0.25,
+        pointBackgroundColor: pts.map(p => p ? variantColor(ex, p.variant) : 'transparent'),
+        pointBorderColor: pts.map((p, i) => i === lastIdx ? '#0c0c0e' : p ? variantColor(ex, p.variant) : 'transparent'),
+        pointBorderWidth: pts.map((_, i) => i === lastIdx ? 2 : 1),
+        pointRadius: pts.map((p, i) => i === lastIdx ? 5 : p && !dense ? 3 : 0),
+        pointHoverRadius: 6,
+        segment: {
+          // A variant switch is drawn as a muted dashed connector: the drop is the harder variant, not regression
+          borderColor: c => pts[c.p0DataIndex].variant === pts[c.p1DataIndex].variant
+            ? variantColor(ex, pts[c.p1DataIndex].variant) : VARIANT_MISSED_COLOR,
+          borderDash: c => pts[c.p0DataIndex].variant === pts[c.p1DataIndex].variant ? undefined : [3, 3],
+        },
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        variantBands: { runs },
+        tooltip: {
+          ...tooltip,
+          callbacks: {
+            label: item => {
+              const p = pts[item.dataIndex];
+              return `${fmtScheme(p)} · ${p.total} total · ${p.variant}`;
             },
           },
         },
-        scales: {
-          x: {
-            ticks: { color: '#6b6870', font: { size: 10 }, maxTicksLimit: 7 },
-            grid: { color: '#1c1c20' },
-          },
-          y: {
-            min: 0,
-            ticks: { color: '#6b6870', font: { size: 10 }, precision: 0 },
-            grid: { color: '#1c1c20' },
-            title: { display: true, text: 'Reps / set', color: '#6b6870', font: { size: 10 } },
-          },
-          y1: {
-            position: 'right',
-            min: 0,
-            ticks: { color: '#6b6870', font: { size: 10 }, precision: 0 },
-            grid: { drawOnChartArea: false },
-            title: { display: true, text: 'Total ┄', color: '#6b6870', font: { size: 10 } },
-          },
+      },
+      scales: {
+        x: {
+          offset: true,
+          ticks: { color: '#6b6870', font: { size: 10 }, maxTicksLimit: 4, maxRotation: 0 },
+          grid: { display: false },
+        },
+        y: {
+          min: 0,
+          suggestedMax: Math.max(...sessions.map(s => s.maxReps)) + 1,
+          afterFit: fixedYWidth,
+          ticks: { color: '#6b6870', font: { size: 10 }, precision: 0, maxTicksLimit: 5 },
+          grid: { color: '#1c1c20' },
+          border: { display: false },
         },
       },
-    });
+    },
+    plugins: [variantBandsPlugin],
+  });
+
+  charts.bars = new Chart(document.getElementById('focusBars'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: pts.map(p => p ? p.total : null),
+        backgroundColor: pts.map(p => p ? variantColor(ex, p.variant) + 'b3' : 'transparent'),
+        borderRadius: 2,
+        maxBarThickness: 8,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { ...tooltip, callbacks: { label: item => `${pts[item.dataIndex].total} total reps` } },
+      },
+      scales: {
+        x: { offset: true, display: false },
+        y: { min: 0, afterFit: fixedYWidth, ticks: { display: false }, grid: { display: false }, border: { display: false } },
+      },
+    },
   });
 }
 
