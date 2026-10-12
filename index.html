@@ -1235,6 +1235,10 @@ function renderFocus() {
   for (let d = new Date(cutoffDate); d <= todayDate; d = addDays(d, 1)) days.push(localDateKey(d));
   const pts = days.map(ds => byDate[ds] || null);
 
+  // Spanned gaps give segment callbacks a null p0, so carry each day's last-seen variant forward
+  const carried = [];
+  pts.forEach((p, i) => { carried[i] = p ? p.variant : carried[i - 1]; });
+
   // Runs of consecutive sessions on the same variant
   const runs = [];
   pts.forEach((p, i) => {
@@ -1309,9 +1313,9 @@ function renderFocus() {
         pointHoverRadius: 6,
         segment: {
           // A variant switch is drawn as a muted dashed connector: the drop is the harder variant, not regression
-          borderColor: c => pts[c.p0DataIndex].variant === pts[c.p1DataIndex].variant
-            ? variantColor(ex, pts[c.p1DataIndex].variant) : VARIANT_MISSED_COLOR,
-          borderDash: c => pts[c.p0DataIndex].variant === pts[c.p1DataIndex].variant ? undefined : [3, 3],
+          borderColor: c => carried[c.p0DataIndex] === carried[c.p1DataIndex]
+            ? variantColor(ex, carried[c.p1DataIndex]) : VARIANT_MISSED_COLOR,
+          borderDash: c => carried[c.p0DataIndex] === carried[c.p1DataIndex] ? undefined : [3, 3],
         },
       }],
     },
