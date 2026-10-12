@@ -91,33 +91,6 @@
   .log-header .section-lbl { margin-bottom: 0; }
   .log-date { font-family: var(--font-display); font-size: 20px; letter-spacing: 1px; color: var(--muted); }
 
-  .ex-card {
-    background: var(--surface); border: 1.5px solid var(--border);
-    border-radius: 10px; margin-bottom: 10px; overflow: hidden;
-    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
-  }
-  .ex-card.ready {
-    border-left: 3px solid var(--accent);
-  }
-  .ex-card.completed {
-    opacity: 0.65;
-  }
-  .ex-card.completed .inputs-row,
-  .ex-card.completed .card-footer {
-    opacity: 1;
-  }
-
-  .ex-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 16px 10px;
-  }
-  .ex-name { font-size: 15px; font-weight: 600; }
-  .ex-today {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--green);
-  }
-  .ex-last-set { font-size: 11px; color: var(--muted); margin-top: 2px; }
-
   .variant-pills {
     display: flex; gap: 6px; padding: 0 16px 12px;
     overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -132,26 +105,89 @@
   .pill:hover { border-color: var(--accent); color: var(--accent); }
   .pill.active { border-color: var(--accent); background: #1f1a10; color: var(--accent); }
 
-  .inputs-row { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 0 16px 10px; }
-  .ex-target-row { padding: 0 16px 4px; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0.06em; }
-  .ex-target-row.progression { color: var(--green); }
 
-  .ex-progress-track {
-    margin: 0 16px 10px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--border);
-    overflow: hidden;
+  .log-summary {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
   }
-  .ex-progress-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: var(--accent);
-    transition: width 0.25s ease, background-color 0.25s ease;
+  .log-summary-num { font-family: var(--font-display); font-size: 40px; line-height: 0.9; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .log-summary-num small { font-size: 22px; color: var(--muted); }
+  .log-summary-meta { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+  .log-summary-meta .section-lbl { margin-bottom: 0; color: var(--muted); }
+  .log-summary-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .log-summary-bar div { height: 100%; background: var(--accent); transition: width 0.25s ease; }
+  .log-summary-bar div.complete { background: var(--green); }
+  .log-summary .log-date { font-family: var(--font-body); font-size: 12px; letter-spacing: 0; }
+
+  .ex-group-lbl { margin: 16px 0 8px; color: var(--muted); }
+  .ex-group-lbl:first-of-type { margin-top: 0; }
+  .ex-row {
+    display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px;
+    padding: 10px 14px; margin-bottom: 8px; text-align: left;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font-family: var(--font-body); cursor: pointer; transition: border-color 0.15s;
   }
-  .ex-progress-fill.complete {
-    background: var(--green);
+  .ex-row:hover, .ex-row:focus-visible { border-color: var(--accent); outline: none; }
+  .ex-row-main { flex: 1; min-width: 0; }
+  .ex-row-name { display: block; font-size: 15px; font-weight: 600; }
+  .ex-row-sub { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .ex-row-state { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ex-row-state.ready { color: var(--accent); }
+  .ex-row-chev { color: var(--muted); font-size: 20px; line-height: 1; }
+  .ex-row.done { min-height: 44px; background: transparent; border-style: dashed; }
+  .ex-row.done .ex-row-name { font-size: 14px; color: var(--muted); }
+  .ex-row-check { color: var(--green); font-weight: 700; }
+  .ex-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  .ring { position: relative; width: 38px; height: 38px; flex-shrink: 0; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 3.5; }
+  .ring .ring-track { stroke: var(--border); }
+  .ring .ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray 0.25s ease; }
+  .ring .ring-fill.complete { stroke: var(--green); }
+  .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* ─── LOG SHEET ─── */
+  .sheet-scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
   }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 201;
+    max-width: 560px; margin: 0 auto;
+    background: var(--surface); border-top: 1px solid var(--border); border-radius: 22px 22px 0 0;
+    padding: 10px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 16px;
+    transform: translateY(100%); transition: transform 0.25s ease;
+  }
+  .sheet-open .sheet-scrim { opacity: 1; pointer-events: auto; }
+  .sheet-open .sheet { transform: translateY(0); }
+  .sheet-grab { width: 38px; height: 4px; background: var(--border); border-radius: 2px; align-self: center; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .sheet-title { font-size: 21px; font-weight: 700; }
+  .sheet-sub { font-size: 12px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .set-dots { display: flex; gap: 5px; padding-top: 6px; }
+  .set-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); }
+  .set-dots i.filled { background: var(--accent); border-color: var(--accent); }
+  .sheet .variant-pills { padding: 0; }
+  .stepper { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .stepper-btn {
+    width: 68px; height: 68px; border-radius: 50%; flex-shrink: 0;
+    border: 1.5px solid var(--border); background: var(--surface2); color: var(--text);
+    font-family: var(--font-body); font-size: 32px; font-weight: 300; line-height: 1; cursor: pointer;
+  }
+  .stepper-btn:active { border-color: var(--accent); color: var(--accent); }
+  .stepper-val { text-align: center; }
+  .stepper-val b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 92px; line-height: 0.85; font-variant-numeric: tabular-nums; }
+  .quick-reps { display: flex; gap: 6px; justify-content: center; }
+  .quick-reps button {
+    min-width: 44px; padding: 7px 0; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--muted);
+    font-family: var(--font-body); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .quick-reps button.active { color: var(--text); border-color: var(--muted); }
+  .sheet .card-log-btn { padding: 15px; font-size: 22px; border-radius: 12px; }
+
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
   .num-input {
@@ -344,11 +380,38 @@
 <!-- ─── LOG VIEW ─── -->
 <div class="view active" id="viewLog">
   <div class="container">
-    <div class="log-header">
-      <div class="section-lbl">Exercises</div>
-      <div class="log-date" id="logDate"></div>
+    <div class="log-summary">
+      <div class="log-summary-num" id="logSummaryNum"></div>
+      <div class="log-summary-meta">
+        <div class="section-lbl">Sets today</div>
+        <div class="log-summary-bar"><div id="logSummaryBar"></div></div>
+        <div class="log-date" id="logDate"></div>
+      </div>
     </div>
     <div id="exerciseCards"></div>
+  </div>
+</div>
+
+<!-- LOG SHEET -->
+<div id="logSheetWrap">
+  <div class="sheet-scrim" onclick="closeLogSheet()"></div>
+  <div class="sheet" id="logSheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grab"></div>
+    <div class="sheet-head">
+      <div>
+        <div class="sheet-title" id="sheetTitle"></div>
+        <div class="sheet-sub" id="sheetSub"></div>
+      </div>
+      <div class="set-dots" id="sheetDots"></div>
+    </div>
+    <div class="variant-pills" id="sheetVariants"></div>
+    <div class="stepper">
+      <button class="stepper-btn" onclick="stepReps(-1)" aria-label="One fewer rep">−</button>
+      <div class="stepper-val"><b id="sheetReps"></b><span class="input-lbl">Reps</span></div>
+      <button class="stepper-btn" onclick="stepReps(1)" aria-label="One more rep">+</button>
+    </div>
+    <div class="quick-reps" id="sheetQuick"></div>
+    <button class="card-log-btn" id="sheetLogBtn" onclick="logExercise(sheetKey)">LOG SET</button>
   </div>
 </div>
 
@@ -762,112 +825,166 @@ function getLastSessionTarget(key) {
   return { sets: totalSets, repsPerSet };
 }
 
-function renderTargetRow(target, todaySets) {
-  const pct = Math.min(100, Math.round((todaySets / target.sets) * 100));
-  const complete = todaySets >= target.sets;
-  const countText = todaySets > 0
-    ? ` · ${todaySets} of ${target.sets} set${target.sets !== 1 ? 's' : ''}`
-    : '';
-
-  return `
-    <div class="ex-target-row">
-      Target: ${target.sets}×${target.repsPerSet}${countText}
-    </div>
-    <div class="ex-progress-track">
-      <div class="ex-progress-fill${complete ? ' complete' : ''}" style="width:${pct}%"></div>
-    </div>`;
+// ─── LOG VIEW ─────────────────────────────────────────────────────────────────
+function todaySetsFor(key) {
+  const today = localDateKey(new Date());
+  return logs.reduce((n, l) =>
+    n + (l.date === today && l[key].sets != null && l[key].reps != null ? l[key].sets : 0), 0);
 }
 
-// ─── LOG VIEW ─────────────────────────────────────────────────────────────────
+function lastEntry(key) {
+  return logs.find(l => l[key].reps != null);
+}
+
+function restRemaining(key) {
+  const entry = lastEntry(key);
+  if (!entry || !entry.timestamp) return 0;
+  return Math.max(0, READY_AFTER_MS - (Date.now() - new Date(entry.timestamp).getTime()));
+}
+
+function defaultReps(key) {
+  return num(state[key].reps) || getLastSessionTarget(key)?.repsPerSet || lastEntry(key)?.[key].reps || 5;
+}
+
+function ringHtml(done, target) {
+  const r = 17.25, c = 2 * Math.PI * r;
+  const pct = target ? Math.min(1, done / target) : 0;
+  const label = target ? `${done}/${target}` : done;
+  return `<div class="ring"><svg viewBox="0 0 38 38">
+      <circle class="ring-track" cx="19" cy="19" r="${r}"/>
+      ${pct > 0 ? `<circle class="ring-fill${pct >= 1 ? ' complete' : ''}" cx="19" cy="19" r="${r}" stroke-dasharray="${c * pct} ${c}"/>` : ''}
+    </svg><span>${label}</span></div>`;
+}
+
 function renderCards() {
   const container = document.getElementById('exerciseCards');
-  container.innerHTML = '';
-  const today = localDateKey(new Date());
+  let totalDone = 0, totalTarget = 0;
 
-  EXERCISES.forEach(ex => {
-    const s = state[ex.key];
-
-    // Aggregate today's totals for this exercise across all log records
-    let todaySets = 0, todayReps = 0;
-    logs.forEach(l => {
-      if (l.date === today && l[ex.key].sets != null && l[ex.key].reps != null) {
-        todaySets += l[ex.key].sets;
-        todayReps += l[ex.key].sets * l[ex.key].reps;
-      }
-    });
-    const totalsHtml = todaySets > 0
-      ? `<span class="ex-today">${todaySets} set${todaySets !== 1 ? 's' : ''} · ${todayReps} reps</span>`
-      : '';
-
-    const lastSet = timeSinceLastSet(ex.key);
-    const lastSetHtml = lastSet ? `<div class="ex-last-set">${lastSet}</div>` : '';
-
+  const rows = EXERCISES.map(ex => {
+    const done = todaySetsFor(ex.key);
     const target = getLastSessionTarget(ex.key);
-    const targetHtml = target ? renderTargetRow(target, todaySets) : '';
-    const isComplete = target ? todaySets >= target.sets : false;
-
-    const div = document.createElement('div');
-    div.className = 'ex-card' + (isComplete ? ' completed' : (isReady(ex.key) ? ' ready' : ''));
-    div.id = 'card-' + ex.key;
-    div.innerHTML = `
-      <div class="ex-header">
-        <div>
-          <span class="ex-name">${ex.label}</span>
-          ${lastSetHtml}
-        </div>
-        ${totalsHtml}
-      </div>
-      ${targetHtml}
-      <div class="variant-pills">
-        ${ex.variants.map(v =>
-          `<button class="pill${s.variant === v ? ' active' : ''}" onclick="setVariant('${ex.key}','${esc(v)}')">${h(v)}</button>`
-        ).join('')}
-      </div>
-      <div class="inputs-row">
-        <div class="input-group">
-          <span class="input-lbl">Reps</span>
-          <input class="num-input" type="number" inputmode="numeric" min="1" placeholder="—"
-            id="reps-${ex.key}" value="${s.reps}"
-            oninput="state['${ex.key}'].reps=this.value">
-        </div>
-      </div>
-      <div class="card-footer">
-        <button class="card-log-btn" id="logbtn-${ex.key}" onclick="logExercise('${ex.key}')">LOG</button>
-      </div>`;
-    container.appendChild(div);
+    const rest = restRemaining(ex.key);
+    if (target) { totalTarget += target.sets; totalDone += Math.min(done, target.sets); }
+    const status = target && done >= target.sets ? 'done' : (rest > 0 ? 'rest' : 'ready');
+    return { ex, done, target, rest, status };
   });
+
+  const rowHtml = ({ ex, done, target, rest, status }) => {
+    const v = state[ex.key].variant;
+    if (status === 'done') {
+      return `<button class="ex-row done" onclick="openLogSheet('${ex.key}')">
+          <span class="ex-dot" style="background:${ex.color}"></span>
+          <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span></span>
+          <span class="ex-row-sub">${h(v)} · ${done} sets</span>
+          <span class="ex-row-check">✓</span>
+        </button>`;
+    }
+    const sub = target ? `${h(v)} · ${target.sets} × ${target.repsPerSet}` : h(v);
+    const stateHtml = status === 'ready'
+      ? '<span class="ex-row-state ready">Ready</span>'
+      : `<span class="ex-row-state">Rest ${Math.ceil(rest / 60000)}m</span>`;
+    return `<button class="ex-row" onclick="openLogSheet('${ex.key}')">
+        ${ringHtml(done, target?.sets)}
+        <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span><span class="ex-row-sub">${sub}</span></span>
+        ${stateHtml}
+        <span class="ex-row-chev">›</span>
+      </button>`;
+  };
+
+  const order = { ready: 0, rest: 1, done: 2 };
+  const upNext = rows.filter(r => r.status !== 'done').sort((a, b) => order[a.status] - order[b.status]);
+  const done = rows.filter(r => r.status === 'done');
+  container.innerHTML =
+    (upNext.length ? `<div class="section-lbl ex-group-lbl">Up next</div>${upNext.map(rowHtml).join('')}` : '') +
+    (done.length ? `<div class="section-lbl ex-group-lbl">Done</div>${done.map(rowHtml).join('')}` : '');
+
+  const setsToday = rows.reduce((n, r) => n + r.done, 0);
+  document.getElementById('logSummaryNum').innerHTML = totalTarget
+    ? `${totalDone}<small>/${totalTarget}</small>` : `${setsToday}`;
+  const bar = document.getElementById('logSummaryBar');
+  bar.style.width = totalTarget ? `${Math.round(totalDone / totalTarget * 100)}%` : '0%';
+  bar.classList.toggle('complete', totalTarget > 0 && totalDone >= totalTarget);
+
+  if (sheetKey) renderLogSheet();
+}
+
+// ─── LOG SHEET ────────────────────────────────────────────────────────────────
+let sheetKey = null;
+
+function openLogSheet(key) {
+  sheetKey = key;
+  state[key].reps = String(defaultReps(key));
+  renderLogSheet();
+  document.getElementById('logSheetWrap').classList.add('sheet-open');
+  document.getElementById('sheetLogBtn').focus({ preventScroll: true });
+}
+
+function closeLogSheet() {
+  sheetKey = null;
+  document.getElementById('logSheetWrap').classList.remove('sheet-open');
+}
+
+function renderLogSheet() {
+  const key = sheetKey;
+  const ex = EXERCISES.find(e => e.key === key);
+  const s = state[key];
+  const done = todaySetsFor(key);
+  const target = getLastSessionTarget(key);
+  const reps = num(s.reps);
+
+  document.getElementById('sheetTitle').textContent = ex.label;
+  const parts = [];
+  if (target) parts.push(done < target.sets ? `Set ${done + 1} of ${target.sets}` : `${done} of ${target.sets} sets done`);
+  else if (done) parts.push(`${done} set${done !== 1 ? 's' : ''} today`);
+  const last = lastEntry(key);
+  if (last) parts.push(`last ${last[key].reps} reps, ${timeSinceLastSet(key)}`);
+  document.getElementById('sheetSub').textContent = parts.join(' · ');
+
+  document.getElementById('sheetDots').innerHTML = target
+    ? Array.from({ length: Math.max(target.sets, done) }, (_, i) => `<i class="${i < done ? 'filled' : ''}"></i>`).join('')
+    : '';
+  document.getElementById('sheetVariants').innerHTML = ex.variants.map(v =>
+    `<button class="pill${s.variant === v ? ' active' : ''}" onclick="setVariant('${key}','${esc(v)}')">${h(v)}</button>`
+  ).join('');
+  document.getElementById('sheetReps').textContent = reps;
+
+  const start = Math.max(1, reps - 2);
+  document.getElementById('sheetQuick').innerHTML = [0, 1, 2, 3, 4].map(i => start + i).map(n =>
+    `<button class="${n === reps ? 'active' : ''}" onclick="setReps(${n})">${n}</button>`
+  ).join('');
+}
+
+function setReps(n) {
+  state[sheetKey].reps = String(Math.max(1, n));
+  renderLogSheet();
+}
+
+function stepReps(d) {
+  setReps(num(state[sheetKey].reps) + d);
 }
 
 function setVariant(key, variant) {
-  syncInputsToState();
   state[key].variant = variant;
   renderCards();
 }
 
-function syncInputsToState() {
-  EXERCISES.forEach(ex => {
-    const r = document.getElementById('reps-' + ex.key);
-    if (r) state[ex.key].reps = r.value;
-  });
-}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && sheetKey) closeLogSheet();
+});
+
+// Keep rest countdowns current while the Log tab is open
+setInterval(() => {
+  if (document.getElementById('viewLog').classList.contains('active')) renderCards();
+}, 30000);
 
 // ─── LOG EXERCISE ─────────────────────────────────────────────────────────────
 async function logExercise(key) {
-  syncInputsToState();
   const s = state[key];
   const reps = num(s.reps);
-  if (!reps) {
-    const input = document.getElementById('reps-' + key);
-    if (input) {
-      input.focus();
-      input.style.borderColor = 'var(--accent2)';
-      setTimeout(() => { input.style.borderColor = ''; }, 1000);
-    }
-    return;
-  }
+  if (!reps) return;
 
   abortLoad();
-  const btn = document.getElementById('logbtn-' + key);
+  const btn = document.getElementById('sheetLogBtn');
   btn.disabled = true;
   btn.textContent = '...';
   setSync('syncing', 'Saving...');
@@ -895,18 +1012,18 @@ async function logExercise(key) {
     alert('Airtable unavailable — kept locally.\n\n' + e.message);
   }
 
-  // Reset reps only; keep variant and sets for quick re-logging
-  state[key].reps = '';
-
   renderCards();
   renderHistory();
 
-  const newBtn = document.getElementById('logbtn-' + key);
-  if (newBtn) {
-    newBtn.textContent = '✓';
-    newBtn.style.background = 'var(--green)';
-    setTimeout(() => { newBtn.textContent = 'LOG'; newBtn.style.background = ''; }, 1500);
-  }
+  // Keep reps and variant so the next set is one tap
+  btn.textContent = '✓';
+  btn.style.background = 'var(--green)';
+  setTimeout(() => {
+    closeLogSheet();
+    btn.disabled = false;
+    btn.textContent = 'LOG SET';
+    btn.style.background = '';
+  }, 700);
 }
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
@@ -1866,11 +1983,6 @@ function exportCalfCSV() {
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 const READY_AFTER_MS = 60 * 60 * 1000;
-function isReady(key) {
-  const entry = logs.find(l => l[key].reps != null);
-  if (!entry || !entry.timestamp) return true;
-  return Date.now() - new Date(entry.timestamp).getTime() >= READY_AFTER_MS;
-}
 function timeSinceLastSet(key) {
   const entry = logs.find(l => l[key].reps != null);
   if (!entry || !entry.timestamp) return null;
