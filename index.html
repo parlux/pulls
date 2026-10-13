@@ -306,7 +306,26 @@
   .focus-delta.down { color: var(--accent2); }
   .focus-chart { position: relative; height: 220px; margin-bottom: 8px; }
   .focus-bars { position: relative; height: 44px; margin: 4px 0 16px; }
-  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+  .rank-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .rank-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
+  .rank-tier { font-family: var(--font-display); font-size: 34px; letter-spacing: 1px; line-height: 0.95; margin-top: 4px; }
+  .rank-score { font-family: var(--font-display); font-size: 34px; line-height: 0.95; font-variant-numeric: tabular-nums; }
+  .rank-score small { font-size: 16px; color: var(--muted); }
+  .rank-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .rank-bar div { height: 100%; }
+  .rank-next { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .rank-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+  .rank-chip {
+    display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; padding: 0 8px; cursor: pointer;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  }
+  .rank-chip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .rank-chip .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; }
+  .rank-chip b { font-variant-numeric: tabular-nums; }
+  .rank-empty { font-size: 12px; color: var(--muted); }
   .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .kpi .focus-lbl { font-size: 9px; letter-spacing: 0.12em; }
   .kpi b { font-family: var(--font-display); font-weight: 400; font-size: 28px; line-height: 0.9; font-variant-numeric: tabular-nums; }
@@ -507,6 +526,7 @@
 <!-- ─── PROGRESS VIEW ─── -->
 <div class="view" id="viewProgress">
   <div class="container">
+    <div id="rankCard"></div>
     <div class="variant-pills ex-pills" id="exPills"></div>
     <div class="seg" id="rangeStrip">
       <button data-range="1w" onclick="setChartRange('1w')">1W</button>
@@ -633,6 +653,26 @@ const EXERCISES = [
   { key: 'splitsquat', label: 'Split Squats', color: '#9b6ef0', variants: ['Bodyweight', 'Rear-Foot Elevated', 'Weighted'] },
   { key: 'stepup', label: 'Step Ups',  color: '#2fb5b5', variants: ['Milk Crate', 'Bench', 'Weighted'] },
 ];
+
+// ─── ATHLETICISM RANK ─────────────────────────────────────────────────────────
+// Per variant: [lo, hi, capReps] — a best set scores lo + (hi-lo) × min(reps, cap)/cap.
+// Bands overlap so a strong set on an easier variant ≈ a weak set on the next one.
+const RANK_STANDARDS = {
+  chinup:     { 'Band-Assisted': [0, 20, 15], 'Negative': [15, 35, 10], 'Full': [30, 85, 20], 'Weighted': [80, 100, 10] },
+  pushup:     { 'Knee': [0, 20, 30], 'Incline': [10, 30, 30], 'Full': [25, 75, 50], 'Decline': [55, 85, 40], 'Weighted': [75, 100, 25] },
+  deadbug:    { 'Bent-Knee': [0, 30, 30], 'Straight-Leg': [20, 55, 30], 'Iso Hold': [30, 70, 60], 'Weighted': [60, 100, 30] },
+  burpee:     { 'No Jump': [0, 25, 20], 'No Pushup': [15, 40, 25], 'Full': [30, 100, 30] },
+  splitsquat: { 'Bodyweight': [0, 40, 25], 'Rear-Foot Elevated': [30, 75, 20], 'Weighted': [65, 100, 15] },
+  stepup:     { 'Milk Crate': [0, 30, 30], 'Bench': [25, 65, 25], 'Weighted': [60, 100, 20] },
+};
+const RANK_TIERS = [
+  { name: 'Untrained',    min: 0,  color: '#6b6870' },
+  { name: 'Novice',       min: 20, color: '#3ab06a' },
+  { name: 'Intermediate', min: 40, color: '#5b8def' },
+  { name: 'Advanced',     min: 60, color: '#a35bef' },
+  { name: 'Elite',        min: 80, color: '#e8a020' },
+];
+const RANK_WINDOW_DAYS = 60;
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let logs = [];
@@ -1335,7 +1375,67 @@ function renderHistory() {
 }
 
 // ─── PROGRESS RENDER ──────────────────────────────────────────────────────────
+function tierFor(score) {
+  const i = RANK_TIERS.findLastIndex(t => score >= t.min);
+  return { ...RANK_TIERS[i], next: RANK_TIERS[i + 1] || null };
+}
+
+// Best single set for `ex` in the rank window, scored against RANK_STANDARDS
+function exerciseScore(ex) {
+  const std = RANK_STANDARDS[ex.key];
+  const from = localDateKey(addDays(new Date(), -(RANK_WINDOW_DAYS - 1)));
+  let best = null;
+  logs.forEach(l => {
+    const e = l[ex.key];
+    const band = std[e.variant];
+    if (!band || l.date < from || !e.reps) return;
+    const [lo, hi, cap] = band;
+    const score = Math.round(lo + (hi - lo) * Math.min(e.reps, cap) / cap);
+    if (!best || score > best.score) best = { score, variant: e.variant, reps: e.reps, date: l.date };
+  });
+  return best;
+}
+
+function rankKpi(ex) {
+  const s = exerciseScore(ex);
+  if (!s) return `<div class="kpi"><span class="focus-lbl">Rank</span><b>—</b><span>Unranked</span></div>`;
+  const tier = tierFor(s.score);
+  return `<div class="kpi"><span class="focus-lbl">Rank · ${tier.name}</span><b style="color:${tier.color}">${s.score}</b><span>${h(s.variant)} × ${s.reps}</span></div>`;
+}
+
+function renderRankCard() {
+  const el = document.getElementById('rankCard');
+  const scores = EXERCISES.map(ex => ({ ex, s: exerciseScore(ex) }));
+  const ranked = scores.filter(x => x.s);
+  if (!ranked.length) {
+    el.innerHTML = `<div class="rank-card"><div class="focus-lbl">Athleticism</div><div class="rank-empty">Log a set to get ranked</div></div>`;
+    return;
+  }
+  const overall = Math.round(ranked.reduce((sum, x) => sum + x.s.score, 0) / ranked.length);
+  const tier = tierFor(overall);
+  const pct = tier.next ? (overall - tier.min) / (tier.next.min - tier.min) * 100 : 100;
+  el.innerHTML = `
+    <div class="rank-card">
+      <div class="rank-head">
+        <div>
+          <div class="focus-lbl">Athleticism · last ${RANK_WINDOW_DAYS} days</div>
+          <div class="rank-tier" style="color:${tier.color}">${tier.name}</div>
+        </div>
+        <div class="rank-score">${overall}<small>/100</small></div>
+      </div>
+      <div class="rank-bar"><div style="width:${pct}%;background:${tier.color}"></div></div>
+      <div class="rank-next">${tier.next ? `${tier.next.min - overall} pts to ${tier.next.name}` : 'Top tier'}</div>
+      <div class="rank-chips">${scores.map(({ ex, s }) => `
+        <button class="rank-chip" onclick="setProgressEx('${ex.key}')">
+          <span class="dot" style="background:${ex.color}"></span><span class="lbl">${ex.label}</span>
+          <b style="color:${s ? tierFor(s.score).color : 'var(--muted)'}">${s ? s.score : '—'}</b>
+        </button>`).join('')}
+      </div>
+    </div>`;
+}
+
 function renderProgress() {
+  renderRankCard();
   renderExPills();
   renderFocus();
 }
@@ -1495,6 +1595,7 @@ function renderFocus() {
       <div class="kpi"><span class="focus-lbl">Best set</span><b>${best.mixed ? best.maxReps : `${best.sets}×${best.maxReps}`}</b><span>${h(best.variant)} · ${fmtDate(best.date)}</span></div>
       <div class="kpi"><span class="focus-lbl">Volume</span><b>${volume}</b><span>${volumeSub}</span></div>
       <div class="kpi"><span class="focus-lbl">Sessions</span><b>${sessions.length}</b><span>of ${days.length} days</span></div>
+      ${rankKpi(ex)}
     </div>`;
 
   const labels = days.map(fmtDate);
