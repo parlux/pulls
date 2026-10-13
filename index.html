@@ -274,6 +274,14 @@
     letter-spacing: 0.08em; text-transform: uppercase; transition: all 0.12s;
   }
   .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .export-btns { display: flex; gap: 6px; }
+  .hist-filter { padding: 0 0 12px; }
+  .hist-kind {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; margin-right: 6px;
+  }
+  .hist-kind.calf { color: var(--accent); border-color: var(--accent); }
+  .today-calf-title { margin-top: 28px; }
 
   /* ─── PROGRESS VIEW ─── */
   .week-strip { display: flex; gap: 6px; margin-bottom: 24px; }
@@ -474,7 +482,7 @@
 </div>
 
 <!-- ─── LOG VIEW ─── -->
-<div class="view active" id="viewLog">
+<div class="view active" id="viewToday">
   <div class="container">
     <div class="log-summary">
       <div class="log-summary-num" id="logSummaryNum"></div>
@@ -485,6 +493,34 @@
       </div>
     </div>
     <div id="exerciseCards"></div>
+
+    <div class="section-title today-calf-title"><span>CALF REHAB</span></div>
+    <div class="calf-dayhead">
+      <button class="calf-arrow" onclick="stepCalfDay(-1)" aria-label="Previous day">‹</button>
+      <div class="calf-dayhead-mid">
+        <div class="calf-day-label" id="calfDayLabel"></div>
+        <div class="calf-tags"><span class="calf-tag" id="calfDayType"></span><span class="calf-tag" id="calfBlockTag"></span></div>
+      </div>
+      <button class="calf-arrow" id="calfNextDay" onclick="stepCalfDay(1)" aria-label="Next day">›</button>
+    </div>
+    <div class="week-strip calf-week" id="calfWeekStrip"></div>
+
+    <div class="section-lbl ex-group-lbl" id="calfProgress"></div>
+    <div id="calfExerciseCards"></div>
+
+    <details class="calf-notes" id="calfNotes">
+      <summary>
+        <span><span class="ex-row-name">Notes</span><span class="ex-row-sub" id="calfNotesSummary"></span></span>
+        <span class="ex-row-chev">›</span>
+      </summary>
+      <div class="calf-notes-body">
+        <span class="input-lbl">Prior day's activity</span>
+        <div class="variant-pills" id="calfActivityPills"></div>
+        <input class="text-input" type="text" id="calfPriorActivity" placeholder="Or type it, e.g. skated, long walk" onchange="renderCalfNotes(); saveCalfEntry()">
+        <span class="input-lbl">Soreness (optional)</span>
+        <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness this morning?" onchange="renderCalfNotes(); saveCalfEntry()"></textarea>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -517,8 +553,9 @@
   <div class="container">
     <div class="section-title">
       <span>HISTORY</span>
-      <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+      <span class="export-btns" id="historyExport"></span>
     </div>
+    <div class="variant-pills hist-filter" id="historyFilter"></div>
     <div class="history-list" id="historyList"></div>
   </div>
 </div>
@@ -538,46 +575,6 @@
   </div>
 </div>
 
-<!-- ─── CALF VIEW ─── -->
-<div class="view" id="viewCalf">
-  <div class="container">
-    <div class="calf-dayhead">
-      <button class="calf-arrow" onclick="stepCalfDay(-1)" aria-label="Previous day">‹</button>
-      <div class="calf-dayhead-mid">
-        <div class="calf-day-label" id="calfDayLabel"></div>
-        <div class="calf-tags"><span class="calf-tag" id="calfDayType"></span><span class="calf-tag" id="calfBlockTag"></span></div>
-      </div>
-      <button class="calf-arrow" id="calfNextDay" onclick="stepCalfDay(1)" aria-label="Next day">›</button>
-    </div>
-    <div class="week-strip calf-week" id="calfWeekStrip"></div>
-
-    <div class="section-lbl ex-group-lbl" id="calfProgress"></div>
-    <div id="calfExerciseCards"></div>
-
-    <details class="calf-notes" id="calfNotes">
-      <summary>
-        <span><span class="ex-row-name">Notes</span><span class="ex-row-sub" id="calfNotesSummary"></span></span>
-        <span class="ex-row-chev">›</span>
-      </summary>
-      <div class="calf-notes-body">
-        <span class="input-lbl">Prior day's activity</span>
-        <div class="variant-pills" id="calfActivityPills"></div>
-        <input class="text-input" type="text" id="calfPriorActivity" placeholder="Or type it, e.g. skated, long walk" onchange="renderCalfNotes(); saveCalfEntry()">
-        <span class="input-lbl">Soreness (optional)</span>
-        <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness this morning?" onchange="renderCalfNotes(); saveCalfEntry()"></textarea>
-      </div>
-    </details>
-
-    <div class="section-lbl">Iso Hold Benchmark</div>
-    <div class="chart-block" id="calfChartBlock">
-      <div class="chart-wrap"><canvas id="calfChart"></canvas></div>
-    </div>
-
-    <div class="section-title"><span>CALF HISTORY</span><button class="export-btn" onclick="exportCalfCSV()">Export CSV</button></div>
-    <div class="history-list" id="calfHistoryList"></div>
-  </div>
-</div>
-
 <!-- CALF SET SHEET -->
 <div id="calfSheetWrap">
   <div class="sheet-scrim" onclick="closeCalfSheet()"></div>
@@ -585,21 +582,17 @@
 </div>
 <!-- BOTTOM TAB BAR -->
 <div class="tab-bar">
-  <button class="tab-btn active" id="tabLog" onclick="showView('Log')">
-    <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-    Log
-  </button>
-  <button class="tab-btn" id="tabHistory" onclick="showView('History')">
-    <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-    History
+  <button class="tab-btn active" id="tabToday" onclick="showView('Today')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+    Today
   </button>
   <button class="tab-btn" id="tabProgress" onclick="showView('Progress')">
     <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
     Progress
   </button>
-  <button class="tab-btn" id="tabCalf" onclick="showView('Calf')">
-    <svg viewBox="0 0 24 24"><path d="M8 2v6.5a4 4 0 0 0 1.2 2.9L11 13v7a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2v-3a4 4 0 0 0-4-4h-1l-1.8-1.6A4 4 0 0 1 10 8.5V2"/></svg>
-    Calf
+  <button class="tab-btn" id="tabHistory" onclick="showView('History')">
+    <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    History
   </button>
 </div>
 
@@ -679,6 +672,8 @@ let logs = [];
 let charts = {};
 let chartRange = '1m';
 let progressEx = 'chinup';
+const CALF_PROGRESS_PILL = { key: 'calf', label: 'Calf hold', color: '#5b8def' };
+let historyFilter = 'all'; // 'all' | 'workouts' | 'calf'
 let calfLogs = [];
 let targets = []; // { id, exercise, sets, reps, effectiveDate, timestamp }, newest first
 let calfCharts = {};
@@ -932,13 +927,11 @@ async function load(background = false) {
   });
 
   renderCards();
+  // A background refresh keeps unsaved notes unless the day has rolled over
+  if (!background || calfDaySetOn !== localDateKey(new Date())) renderCalfForm();
+  renderCalfWeek();
   renderHistory();
-  if (document.getElementById('viewCalf')?.classList.contains('active')) {
-    if (!background) renderCalfForm();
-    renderCalfWeek();
-    renderCalfChart();
-    renderCalfHistory();
-  }
+  if (document.getElementById('viewProgress').classList.contains('active')) renderProgress();
 
   const overlay = document.getElementById('loadingOverlay');
   if (overlay) {
@@ -954,7 +947,6 @@ function showView(name) {
   document.getElementById('view' + name).classList.add('active');
   document.getElementById('tab' + name).classList.add('active');
   if (name === 'Progress') renderProgress();
-  if (name === 'Calf') { renderCalfForm(); renderCalfWeek(); renderCalfChart(); renderCalfHistory(); }
 }
 
 // ─── TARGET ───────────────────────────────────────────────────────────────────
@@ -1225,9 +1217,9 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && calfSheet) closeCalfSheet();
 });
 
-// Keep rest countdowns current while the Log tab is open
+// Keep rest countdowns current while the Today tab is open
 setInterval(() => {
-  if (document.getElementById('viewLog').classList.contains('active')) renderCards();
+  if (document.getElementById('viewToday').classList.contains('active')) renderCards();
 }, 30000);
 
 // ─── LOG EXERCISE ─────────────────────────────────────────────────────────────
@@ -1300,13 +1292,42 @@ async function deleteEntry(key) {
 }
 
 // ─── HISTORY RENDER ───────────────────────────────────────────────────────────
-function renderHistory() {
-  const list = document.getElementById('historyList');
-  if (logs.length === 0) {
-    list.innerHTML = '<div class="empty"><strong>NO LOGS YET</strong>Log your first set above.</div>';
-    return;
-  }
+const HISTORY_FILTERS = [['all', 'All'], ['workouts', 'Workouts'], ['calf', 'Calf']];
 
+function setHistoryFilter(f) {
+  historyFilter = f;
+  renderHistory();
+}
+
+// Workouts and calf sessions in one list, newest day first (workouts before calf within a day)
+function renderHistory() {
+  document.getElementById('historyFilter').innerHTML = HISTORY_FILTERS.map(([key, label]) =>
+    `<button class="pill${key === historyFilter ? ' active' : ''}" onclick="setHistoryFilter('${key}')">${label}</button>`).join('');
+  document.getElementById('historyExport').innerHTML = {
+    all: `<button class="export-btn" onclick="exportCSV()">Workouts CSV</button><button class="export-btn" onclick="exportCalfCSV()">Calf CSV</button>`,
+    workouts: `<button class="export-btn" onclick="exportCSV()">Export CSV</button>`,
+    calf: `<button class="export-btn" onclick="exportCalfCSV()">Export CSV</button>`,
+  }[historyFilter];
+
+  const items = [
+    ...(historyFilter !== 'calf' ? workoutHistoryItems().map(x => ({ ...x, order: 0 })) : []),
+    ...(historyFilter !== 'workouts' ? calfHistoryItems().map(x => ({ ...x, order: 1 })) : []),
+  ].sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order);
+
+  const empty = { all: 'NO LOGS YET', workouts: 'NO WORKOUTS YET', calf: 'NO CALF LOGS YET' }[historyFilter];
+  document.getElementById('historyList').innerHTML = items.length
+    ? items.map(x => x.html).join('')
+    : `<div class="empty"><strong>${empty}</strong>Log your first set on the Today tab.</div>`;
+}
+
+function histHead(date, kind) {
+  return `<div class="hist-head">
+      <span class="hist-date">${fmtDate(date)}</span>
+      <span class="hist-dow"><span class="hist-kind${kind === 'Calf' ? ' calf' : ''}">${kind}</span>${fmtDow(date)}</span>
+    </div>`;
+}
+
+function workoutHistoryItems() {
   // Group records by date
   const dateOrder = [];
   const byDate = {};
@@ -1330,7 +1351,7 @@ function renderHistory() {
     });
   });
 
-  list.innerHTML = dateOrder.map(date => {
+  return dateOrder.map(date => {
     const entry = byDate[date];
 
     const exRows = EXERCISES.map(ex => {
@@ -1361,17 +1382,14 @@ function renderHistory() {
       </div>`;
     }).join('');
 
-    return `<div class="hist-item">
-      <div class="hist-head">
-        <span class="hist-date">${fmtDate(date)}</span>
-        <span class="hist-dow">${fmtDow(date)}</span>
-      </div>
+    return { date, html: `<div class="hist-item">
+      ${histHead(date, 'Workout')}
       <div class="hist-exercises">
         ${exRows || '<span style="color:var(--muted);font-size:12px">Nothing logged</span>'}
       </div>
       <div class="hist-records">${recordRows}</div>
-    </div>`;
-  }).join('');
+    </div>` };
+  });
 }
 
 // ─── PROGRESS RENDER ──────────────────────────────────────────────────────────
@@ -1441,7 +1459,7 @@ function renderProgress() {
 }
 
 function renderExPills() {
-  document.getElementById('exPills').innerHTML = EXERCISES.map(ex => `
+  document.getElementById('exPills').innerHTML = [...EXERCISES, CALF_PROGRESS_PILL].map(ex => `
     <button class="pill${ex.key === progressEx ? ' active' : ''}" onclick="setProgressEx('${ex.key}')">
       <span class="dot" style="background:${ex.color}"></span>${ex.label}
     </button>`).join('');
@@ -1517,6 +1535,18 @@ const variantBandsPlugin = {
 function renderFocus() {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
+  if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
+
+  // The calf iso hold chart has its own fixed A-day axis, so the range strip doesn't apply
+  const isCalf = progressEx === CALF_PROGRESS_PILL.key;
+  document.getElementById('rangeStrip').style.display = isCalf ? 'none' : '';
+  if (isCalf) {
+    document.getElementById('progressBody').innerHTML = `
+      <div class="focus-head"><div class="focus-lbl">Iso hold · best per A-day</div></div>
+      <div class="chart-block" id="calfChartBlock"></div>`;
+    renderCalfChart();
+    return;
+  }
 
   const ex = EXERCISES.find(e => e.key === progressEx) || EXERCISES[0];
   const body = document.getElementById('progressBody');
@@ -2071,7 +2101,7 @@ async function persistCalfEntry(entry) {
 
   renderCalfWeek();
   renderCalfChart();
-  renderCalfHistory();
+  renderHistory();
 }
 async function deleteCalfEntry(id) {
   if (!confirm('Delete this entry?')) return;
@@ -2084,7 +2114,7 @@ async function deleteCalfEntry(id) {
     setSync('ok', 'Deleted');
     renderCalfWeek();
     renderCalfChart();
-    renderCalfHistory();
+    renderHistory();
   } catch (e) {
     console.error(e);
     setSync('err', 'Delete failed');
@@ -2137,6 +2167,7 @@ function renderCalfChart() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const block = document.getElementById('calfChartBlock');
+  if (!block) return; // only on Progress with the Calf hold pill selected
   if (isoEntries.length === 0) {
     block.innerHTML = '<div class="chart-empty">No iso hold entries yet</div>';
     return;
@@ -2261,21 +2292,13 @@ function renderCalfSetDetail(l) {
   return lines.map(line => `<span>${h(line)}</span>`).join('');
 }
 
-function renderCalfHistory() {
-  const list = document.getElementById('calfHistoryList');
-  if (calfLogs.length === 0) {
-    list.innerHTML = '<div class="empty"><strong>NO CALF LOGS YET</strong>Log your first session above.</div>';
-    return;
-  }
-  list.innerHTML = calfLogs.slice(0, 120).map(l => {
+function calfHistoryItems() {
+  return calfLogs.slice(0, 120).map(l => {
     const setDetail = renderCalfSetDetail(l);
     const level = l.assist || calfPullSummary(l);
-    return `
+    return { date: l.date, html: `
     <div class="hist-item">
-      <div class="hist-head">
-        <span class="hist-date">${fmtDate(l.date)}</span>
-        <span class="hist-dow">${fmtDow(l.date)}</span>
-      </div>
+      ${histHead(l.date, 'Calf')}
       <div class="hist-calf-row">
         <span>${h(l.dayType)}${level ? ` · <span class="hist-calf-assist">${h(level)}</span>` : ''}</span>
         ${l.priorActivity ? `<span>Prior: ${h(l.priorActivity)}</span>` : ''}
@@ -2288,8 +2311,8 @@ function renderCalfHistory() {
           <button class="hist-del" onclick="deleteCalfEntry('${esc(l.id)}')" title="Delete">×</button>
         </div>
       </div>
-    </div>`;
-  }).join('');
+    </div>` };
+  });
 }
 
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
