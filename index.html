@@ -187,6 +187,8 @@
     font-family: var(--font-body); font-size: 13px; font-weight: 700;
   }
   .sheet-target button.primary { border-color: var(--accent); color: var(--accent); }
+  .sheet-target.bump { background: #1f1a10; border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; color: var(--text); }
+  .sheet-target.bump button.primary { background: var(--accent); color: var(--bg); white-space: nowrap; }
   .stepper { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .stepper-btn {
     width: 68px; height: 68px; border-radius: 50%; flex-shrink: 0;
@@ -1176,10 +1178,16 @@ function renderLogSheet() {
   const pending = upcomingTarget(key);
   const isDone = target && done >= target.sets;
   const streak = target ? streakDays(key, target) : 0;
-  document.getElementById('sheetTarget').innerHTML = isDone && pending
+  // A full week at the target with no bump queued: offer it whether or not today's sets are done
+  const bumpReady = target && !pending && streak >= BUMP_AFTER_DAYS;
+  const targetEl = document.getElementById('sheetTarget');
+  targetEl.classList.toggle('bump', !!bumpReady);
+  targetEl.innerHTML = isDone && pending
     ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="bumpTarget('${key}',-1)">Undo</button>`
-    : isDone && streak >= BUMP_AFTER_DAYS
-    ? `<span class="grow">A week at ${fmtTarget(target)}. Felt easy? Next time <b>${fmtTarget(nextStep(target))}</b></span><button class="primary" onclick="bumpTarget('${key}',1)">Bump</button>`
+    : bumpReady && isDone
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Next time <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="bumpTarget('${key}',1)">Bump</button>`
+    : bumpReady
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Ready for <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="bumpTarget('${key}',1)">Bump today</button>`
     : `${isDone ? '' : `<button onclick="bumpTarget('${key}',-1)" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
        <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · day ${Math.min(streak + (isDone ? 0 : 1), BUMP_AFTER_DAYS)} of ${BUMP_AFTER_DAYS}` : ''}</span>
        <button onclick="bumpTarget('${key}',1)" aria-label="Harder target">+</button>`;
