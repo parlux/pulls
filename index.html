@@ -323,9 +323,15 @@
   .rank-tier { font-family: var(--font-display); font-size: 34px; letter-spacing: 1px; line-height: 0.95; margin-top: 4px; }
   .rank-score { font-family: var(--font-display); font-size: 34px; line-height: 0.95; font-variant-numeric: tabular-nums; }
   .rank-score small { font-size: 16px; color: var(--muted); }
-  .rank-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
-  .rank-bar div { height: 100%; }
-  .rank-next { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .rank-scale { position: relative; padding-top: 18px; }
+  .rank-pin { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .rank-pin::after { content: ''; margin-top: 3px; border: 5px solid transparent; border-top-color: currentColor; border-bottom: 0; }
+  .rank-segs, .rank-seg-lbls { display: flex; gap: 3px; }
+  .rank-seg { flex: 1; height: 8px; border-radius: 2px; position: relative; overflow: hidden; }
+  .rank-seg div { position: absolute; inset: 0 auto 0 0; }
+  .rank-seg-lbls { margin-top: 6px; }
+  .rank-seg-lbls span { flex: 1; text-align: center; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .rank-next { font-size: 11px; color: var(--muted); margin-top: 8px; }
   .rank-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
   .rank-chip {
     display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; padding: 0 8px; cursor: pointer;
@@ -663,7 +669,7 @@ const RANK_STANDARDS = {
 const RANK_TIERS = [
   { name: 'Untrained',    min: 0,  color: '#6b6870' },
   { name: 'Novice',       min: 20, color: '#3ab06a' },
-  { name: 'Intermediate', min: 40, color: '#5b8def' },
+  { name: 'Intermediate', short: 'Inter.', min: 40, color: '#5b8def' },
   { name: 'Advanced',     min: 60, color: '#a35bef' },
   { name: 'Elite',        min: 80, color: '#e8a020' },
 ];
@@ -1429,6 +1435,24 @@ function rankKpi(ex) {
   return `<div class="kpi"><span class="focus-lbl">Rank · ${tier.name}</span><b style="color:${tier.color}">${s.score}</b><span>${h(s.variant)} × ${s.reps}</span></div>`;
 }
 
+// Full 0–100 scale: one segment per tier, filled up to `score`, with a pin at the score
+function rankScale(score, tier) {
+  const segs = RANK_TIERS.map((t, i) => {
+    const max = RANK_TIERS[i + 1]?.min ?? 100;
+    const fill = Math.max(0, Math.min(1, (score - t.min) / (max - t.min))) * 100;
+    return `<div class="rank-seg" style="flex:${max - t.min};background:${t.color}33"><div style="width:${fill}%;background:${t.color}"></div></div>`;
+  }).join('');
+  const lbls = RANK_TIERS.map((t, i) => {
+    const max = RANK_TIERS[i + 1]?.min ?? 100;
+    return `<span style="flex:${max - t.min}${t.name === tier.name ? `;color:${t.color}` : ''}">${t.short || t.name}</span>`;
+  }).join('');
+  return `<div class="rank-scale">
+      <div class="rank-pin" style="left:${Math.min(Math.max(score, 4), 96)}%;color:${tier.color}">${score}</div>
+      <div class="rank-segs">${segs}</div>
+      <div class="rank-seg-lbls">${lbls}</div>
+    </div>`;
+}
+
 function renderRankCard() {
   const el = document.getElementById('rankCard');
   const scores = EXERCISES.map(ex => ({ ex, s: exerciseScore(ex) }));
@@ -1439,7 +1463,6 @@ function renderRankCard() {
   }
   const overall = Math.round(ranked.reduce((sum, x) => sum + x.s.score, 0) / ranked.length);
   const tier = tierFor(overall);
-  const pct = tier.next ? (overall - tier.min) / (tier.next.min - tier.min) * 100 : 100;
   el.innerHTML = `
     <div class="rank-card">
       <div class="rank-head">
@@ -1449,7 +1472,7 @@ function renderRankCard() {
         </div>
         <div class="rank-score">${overall}<small>/100</small></div>
       </div>
-      <div class="rank-bar"><div style="width:${pct}%;background:${tier.color}"></div></div>
+      ${rankScale(overall, tier)}
       <div class="rank-next">${tier.next ? `${tier.next.min - overall} pts to ${tier.next.name}` : 'Top tier'}</div>
       <div class="rank-chips">${scores.map(({ ex, s }) => `
         <button class="rank-chip" onclick="setProgressEx('${ex.key}')">
