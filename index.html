@@ -715,6 +715,10 @@ const GRIP_LEVELS = ['Full hand', 'Fingers', 'Fingertips', 'One finger'];
 const CALF_PULL_START = '2026-10-10';
 const HEEL_PULL_LEVELS = ['Heavy', 'Moderate', 'Light', 'Balance only', 'Fingertips'];
 const ISO_PULL_LEVELS  = ['Heavy', 'Moderate', 'Light', 'Fingertips', 'Balance only'];
+// Block 2 left heel raise follows the set ladder, stored in Targets; bump offered after a week of A-days
+const CALF_BUMP_KEY = 'heelRaiseLeft';
+const CALF_HEEL_DEFAULT = { sets: 5, repsPerSet: 4 };
+const CALF_BUMP_SESSIONS = 4;
 
 function calfBlock(dateStr) {
   return dateStr >= CALF_BLOCK2_START ? 2 : 1;
@@ -1221,12 +1225,10 @@ function getTarget(key) {
   return storedTarget(key, localDateKey(new Date())) || lastSessionTarget(key);
 }
 
-// Calendar days (inclusive of today) the target has been hit with no missed session,
-// counting back no further than when the stored target took effect. Today counts only once hit.
-function streakDays(key, target) {
+// Start of the current target: the earliest of the latest run of rows with the same value,
+// skipping rows overridden by a newer row before they took effect (e.g. an undone bump)
+function targetSince(key, target) {
   const today = localDateKey(new Date());
-  // Start of the current target: the earliest of the latest run of rows with the same value,
-  // skipping rows overridden by a newer row before they took effect (e.g. an undone bump)
   let since = '', minEff = '\uffff';
   for (const t of targets) {
     if (t.exercise !== key || t.effectiveDate > today || !t.sets || !t.reps || t.effectiveDate >= minEff) continue;
@@ -1234,6 +1236,14 @@ function streakDays(key, target) {
     if (t.sets !== target.sets || t.reps !== target.repsPerSet) break;
     since = t.effectiveDate;
   }
+  return since;
+}
+
+// Calendar days (inclusive of today) the target has been hit with no missed session,
+// counting back no further than when the stored target took effect. Today counts only once hit.
+function streakDays(key, target) {
+  const today = localDateKey(new Date());
+  const since = targetSince(key, target);
   const byDate = {};
   logs.forEach(l => { const e = l[key]; if (e?.sets != null && e?.reps != null) (byDate[l.date] ??= []).push(e); });
   const hit = d => byDate[d].reduce((n, e) => n + (e.reps >= target.repsPerSet ? (e.sets || 1) : 0), 0) >= target.sets;
@@ -1249,9 +1259,8 @@ function streakDays(key, target) {
 }
 
 // A bump made after finishing today's target, waiting for tomorrow
-function upcomingTarget(key) {
+function upcomingTarget(key, cur = getTarget(key)) {
   const t = storedTarget(key, localDateKey(addDays(new Date(), 1)));
-  const cur = getTarget(key);
   return t && cur && (t.sets !== cur.sets || t.repsPerSet !== cur.repsPerSet) ? t : null;
 }
 
@@ -1413,22 +1422,11 @@ function renderLogSheet() {
   if (last) parts.push(`last ${last[key].reps} reps, ${timeSinceLastSet(key)}`);
   document.getElementById('sheetSub').textContent = parts.join(' · ');
 
-  const pending = upcomingTarget(key);
-  const isDone = target && done >= target.sets;
-  const streak = target ? streakDays(key, target) : 0;
-  // A full week at the target with no bump queued: offer it whether or not today's sets are done
-  const bumpReady = target && !pending && streak >= BUMP_AFTER_DAYS;
-  const targetEl = document.getElementById('sheetTarget');
-  targetEl.classList.toggle('bump', !!bumpReady);
-  targetEl.innerHTML = isDone && pending
-    ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="bumpTarget('${key}',-1)">Undo</button>`
-    : bumpReady && isDone
-    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Next time <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="bumpTarget('${key}',1)">Bump</button>`
-    : bumpReady
-    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Ready for <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="bumpTarget('${key}',1)">Bump today</button>`
-    : `${isDone ? '' : `<button onclick="bumpTarget('${key}',-1)" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
-       <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · day ${Math.min(streak + (isDone ? 0 : 1), BUMP_AFTER_DAYS)} of ${BUMP_AFTER_DAYS}` : ''}</span>
-       <button onclick="bumpTarget('${key}',1)" aria-label="Harder target">+</button>`;
+  renderTargetRow(document.getElementById('sheetTarget'), {
+    target, pending: upcomingTarget(key), isDone: target && done >= target.sets,
+    streak: target ? streakDays(key, target) : 0, need: BUMP_AFTER_DAYS, unit: 'day',
+    bump: dir => `bumpTarget('${key}',${dir})`,
+  });
 
   document.getElementById('sheetDots').innerHTML = target
     ? Array.from({ length: Math.max(target.sets, done) }, (_, i) => `<i class="${i < done ? 'filled' : ''}"></i>`).join('')
@@ -1442,6 +1440,23 @@ function renderLogSheet() {
   document.getElementById('sheetQuick').innerHTML = [0, 1, 2, 3, 4].map(i => start + i).map(n =>
     `<button class="${n === reps ? 'active' : ''}" onclick="setReps(${n})">${n}</button>`
   ).join('');
+}
+
+// Target −/+ row, or the bump card once the target has held for `need` days (or sessions).
+// `bump(dir)` returns the onclick call that steps the target.
+function renderTargetRow(el, { target, pending, isDone, streak, need, unit, bump }) {
+  // A full week at the target with no bump queued: offer it whether or not today's sets are done
+  const bumpReady = target && !pending && streak >= need;
+  el.classList.toggle('bump', !!bumpReady);
+  el.innerHTML = isDone && pending
+    ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="${bump(-1)}">Undo</button>`
+    : bumpReady && isDone
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Next time <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="${bump(1)}">Bump</button>`
+    : bumpReady
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Ready for <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="${bump(1)}">Bump today</button>`
+    : `${isDone ? '' : `<button onclick="${bump(-1)}" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
+       <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · ${unit} ${Math.min(streak + (isDone ? 0 : 1), need)} of ${need}` : ''}</span>
+       <button onclick="${bump(1)}" aria-label="Harder target">+</button>`;
 }
 
 function setReps(n) {
@@ -1998,9 +2013,10 @@ function calfPlan(dateStr) {
   if (type === 'A') {
     const heelLevel = pull ? scale('pull', 'Pull on doorframe', HEEL_PULL_LEVELS) : assist;
     const isoLevel = pull ? scale('pull', 'Pull on doorframe', ISO_PULL_LEVELS) : scale('grip', 'Grip', GRIP_LEVELS);
+    const heel = calfTarget(dateStr);
     return [
       { id: 'heelRaise', title: 'Two-up, one-down heel raise', sub: pull ? 'Doorframe pull' : 'Clean reps', kind: 'reps', rest: CALF_REST_SECS,
-        sides: [side('heelRaiseLeft', 'L', 5, 4, heelLevel), side('heelRaiseRight', 'R', 2, 6)] },
+        sides: [side('heelRaiseLeft', 'L', heel.sets, heel.repsPerSet, heelLevel), side('heelRaiseRight', 'R', 2, 6)] },
       { id: 'isoHold', title: 'Mid-height iso hold', sub: 'Doorframe · 30s cap', kind: 'seconds', cap: 30, rest: CALF_REST_SECS,
         sides: [side('isoHoldLeft', 'L', 3, null, isoLevel), side('isoHoldRight', 'R', 2, null, isoLevel)] },
     ];
@@ -2014,6 +2030,43 @@ function calfPlan(dateStr) {
       sides: [side('bentKneeLeft', 'L', 2, 15), side('bentKneeRight', 'R', 2, 15)] },
   ];
   return [];
+}
+
+// ─── CALF TARGET ──────────────────────────────────────────────────────────────
+function calfTarget(dateStr) {
+  return storedTarget(CALF_BUMP_KEY, dateStr) || CALF_HEEL_DEFAULT;
+}
+
+// A-days in a row the left heel-raise target was hit with no A-day missed, counting back no
+// further than Block 2 or when the target took effect. Today counts only once hit.
+function calfStreak(target) {
+  const today = localDateKey(new Date());
+  const since = [targetSince(CALF_BUMP_KEY, target), CALF_BLOCK2_START].sort().pop();
+  const hit = ds => (calfLogs.find(l => l.date === ds)?.[CALF_BUMP_KEY] || [])
+    .filter(s => s.reps >= target.repsPerSet).length >= target.sets;
+  let n = 0;
+  for (let d = new Date(today + 'T12:00:00'), ds = today; ds >= since; d = addDays(d, -1), ds = localDateKey(d)) {
+    if (calfDayType(ds) !== 'A') continue;
+    if (!hit(ds)) { if (ds === today) continue; break; }
+    n++;
+  }
+  return n;
+}
+
+// Before today's sets are done: step today's target up/down. After: queue (or undo) the next bump.
+function bumpCalfTarget(dir) {
+  const today = localDateKey(new Date());
+  const cur = calfTarget(today);
+  if ((calfSetsState[CALF_BUMP_KEY] || []).length >= cur.sets) {
+    // dir < 0 undoes a queued bump by re-saving today's target for tomorrow
+    saveTarget(CALF_BUMP_KEY, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
+  } else {
+    saveTarget(CALF_BUMP_KEY, dir > 0 ? nextStep(cur) : prevStep(cur), today);
+  }
+  renderCalfDay();
+  if (!calfSheet) return;
+  if (calfSheet.editIdx == null) { const { ex, side } = calfSheetCtx(); calfSheet.draft = calfDraft(ex, side); }
+  renderCalfSheet();
 }
 
 const calfValueProp = ex => ex.kind === 'seconds' ? 'seconds' : 'reps';
@@ -2104,9 +2157,11 @@ function calfCardHtml(ex) {
     return `<span class="calf-side"><b>${s.short}</b><span class="calf-bars">${bars}</span><span class="calf-side-info">${info}</span></span>`;
   };
   const complete = ex.sides.every(s => calfSets(s).length >= s.sets);
+  const pending = ex.sides.some(s => s.key === CALF_BUMP_KEY) && calfDay === localDateKey(new Date())
+    && upcomingTarget(CALF_BUMP_KEY, calfTarget(calfDay));
   return `<button class="calf-card${complete ? ' done' : ''}" onclick="openCalfSheet('${ex.id}')">
       <span class="calf-card-top">
-        <span><span class="ex-row-name">${h(ex.title)}</span><span class="ex-row-sub">${h(ex.sub)} · ${calfTargetsText(ex)}</span></span>
+        <span><span class="ex-row-name">${h(ex.title)}</span><span class="ex-row-sub">${h(ex.sub)} · ${calfTargetsText(ex)}${pending ? ` · ↑ L ${fmtTarget(pending)} next` : ''}</span></span>
         ${complete ? '<span class="ex-row-check">✓</span>' : '<span class="ex-row-chev">›</span>'}
       </span>
       ${ex.sides.map(sideRow).join('')}
@@ -2251,6 +2306,7 @@ function renderCalfSheet() {
         `<i class="${i < sets.length ? 'filled' : ''}"></i>`).join('')}</div>
     </div>
     ${seg}
+    <div class="sheet-target" id="calfSheetTarget"></div>
     <div class="stepper">
       <button class="stepper-btn" onclick="stepCalfDraft('${prop}',-1)" aria-label="One less">−</button>
       <div class="stepper-val"><b>${val}</b><span class="input-lbl">${prop === 'seconds' ? 'Seconds' : 'Reps'}</span></div>
@@ -2259,6 +2315,15 @@ function renderCalfSheet() {
     <div class="quick-reps">${quick.map(n =>
       `<button class="${n === val ? 'active' : ''}" onclick="setCalfDraft('${prop}',${n})">${n}</button>`).join('')}</div>
     ${timer}${weight}${level}${chips}<div class="calf-rest" id="calfRestSheet"></div>${action}`;
+  const targetEl = document.getElementById('calfSheetTarget');
+  // The ladder only applies to the left heel raise, and is only changed from today
+  if (side.key === CALF_BUMP_KEY && calfDay === localDateKey(new Date())) {
+    const target = calfTarget(calfDay);
+    renderTargetRow(targetEl, {
+      target, pending: upcomingTarget(CALF_BUMP_KEY, target), isDone: sets.length >= target.sets,
+      streak: calfStreak(target), need: CALF_BUMP_SESSIONS, unit: 'A-day', bump: dir => `bumpCalfTarget(${dir})`,
+    });
+  } else targetEl.remove();
   renderCalfRest();
 }
 
