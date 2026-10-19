@@ -693,8 +693,6 @@ let calfDay = '';        // date shown on the Calf tab
 let calfDaySetOn = '';   // real date when calfDay was chosen; a new day resets the tab to today
 let calfSetsState = {};  // logged sets for calfDay, keyed by calf log field, in stored form
 let calfSheet = null;    // { exId, sideKey, editIdx, draft } while the set sheet is open
-let calfSaveChain = Promise.resolve();
-let calfOfflineWarned = false;
 
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
@@ -762,22 +760,6 @@ function buildFields(log) {
 
 function num(v) { return (v !== '' && v != null) ? Number(v) : null; }
 
-async function createLog(log) {
-  const data = await atFetch('', {
-    method: 'POST',
-    body: JSON.stringify({ records: [{ fields: buildFields(log) }] }),
-  });
-  return data.records[0].id;
-}
-
-async function updateLog(log) {
-  await atFetch('', {
-    method: 'PATCH',
-    body: JSON.stringify({ records: [{ id: log.id, fields: buildFields(log) }] }),
-  });
-}
-
-async function deleteLog(id) { await atFetch('/' + id, { method: 'DELETE' }); }
 
 // ─── TARGETS AIRTABLE API ─────────────────────────────────────────────────────
 async function fetchAllTargets(signal) {
@@ -791,14 +773,8 @@ async function fetchAllTargets(signal) {
   }));
 }
 
-async function createTarget(t) {
-  const data = await atFetch('', {
-    method: 'POST',
-    body: JSON.stringify({ records: [{ fields: {
-      Exercise: t.exercise, Sets: t.sets, Reps: t.reps, EffectiveDate: t.effectiveDate, Timestamp: t.timestamp,
-    } }] }),
-  }, AT_TARGETS_URL);
-  return data.records[0].id;
+function buildTargetFields(t) {
+  return { Exercise: t.exercise, Sets: t.sets, Reps: t.reps, EffectiveDate: t.effectiveDate, Timestamp: t.timestamp };
 }
 
 // ─── CALF AIRTABLE API ────────────────────────────────────────────────────────
@@ -856,22 +832,125 @@ function buildCalfFields(entry) {
   };
 }
 
-async function createCalfLog(entry) {
-  const data = await atFetch('', {
-    method: 'POST',
-    body: JSON.stringify({ records: [{ fields: buildCalfFields(entry) }] }),
-  }, AT_CALF_URL);
-  return data.records[0].id;
+// ─── LOCAL-FIRST WRITES ───────────────────────────────────────────────────────
+// Writes land in local state and the cache straight away, flagged `pending` (an edit
+// stamp), and pushPending() sends them to Airtable in batches. Records not yet created
+// in Airtable keep a local- id. Failed pushes retry with backoff and on every sync.
+const PENDING_DELETES_KEY = 'greyskull_pending_deletes_v1'; // [{ table, id }] Airtable ids
+const PUSH_BATCH = 10; // Airtable's per-request record limit
+const SYNC_TABLES = {
+  logs:    { url: AT_URL,         cacheKey: CACHE_KEY,         fields: buildFields,       get: () => logs,     set: v => { logs = v; } },
+  calf:    { url: AT_CALF_URL,    cacheKey: CALF_CACHE_KEY,    fields: buildCalfFields,   get: () => calfLogs, set: v => { calfLogs = v; } },
+  targets: { url: AT_TARGETS_URL, cacheKey: TARGETS_CACHE_KEY, fields: buildTargetFields, get: () => targets,  set: v => { targets = v; } },
+};
+
+let pendingDeletes = [];
+try { pendingDeletes = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY)) || []; } catch (e) {}
+let lastPendingStamp = 0;
+let pushGen = 0;      // bumps whenever a push settles, so a fetch started before it is known stale
+const idAliases = {}; // local- id → Airtable id, for buttons rendered before the create landed
+let pushChain = Promise.resolve(true);
+let pushRetryTimer = null, pushRetryDelay = 30 * 1000;
+const PUSH_RETRY_MAX_MS = 30 * 60 * 1000;
+
+function isLocalId(id) { return !id || id.startsWith('local-'); }
+function currentId(id) { return idAliases[id] || id; }
+function saveTableCache(name) { localStorage.setItem(SYNC_TABLES[name].cacheKey, JSON.stringify(SYNC_TABLES[name].get())); }
+function savePendingDeletes() { localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(pendingDeletes)); }
+
+// Stamps are unique so a push only clears the edit it actually sent
+function markPending(r) {
+  lastPendingStamp = Math.max(Date.now(), lastPendingStamp + 1);
+  r.pending = lastPendingStamp;
 }
 
-async function updateCalfLog(entry) {
-  await atFetch('', {
-    method: 'PATCH',
-    body: JSON.stringify({ records: [{ id: entry.id, fields: buildCalfFields(entry) }] }),
-  }, AT_CALF_URL);
+function queueDelete(name, id) {
+  if (isLocalId(id)) return; // never reached Airtable
+  pendingDeletes.push({ table: name, id });
+  savePendingDeletes();
 }
 
-async function deleteCalfLog(id) { await atFetch('/' + id, { method: 'DELETE' }, AT_CALF_URL); }
+function pendingCount() {
+  return Object.values(SYNC_TABLES).reduce((n, t) => n + t.get().filter(r => r.pending).length, 0) + pendingDeletes.length;
+}
+
+function chunks(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+// Queues one push pass after any in flight. Resolves true when nothing is left unsent.
+function pushPending() {
+  clearTimeout(pushRetryTimer);
+  pushChain = pushChain.then(pushOnce);
+  return pushChain;
+}
+
+async function pushOnce() {
+  if (!pendingCount()) return true;
+  setSync('syncing', 'Saving...');
+  try {
+    for (const [name, t] of Object.entries(SYNC_TABLES)) {
+      for (const batch of chunks(pendingDeletes.filter(d => d.table === name), PUSH_BATCH)) {
+        await atFetch('?' + batch.map(d => 'records[]=' + encodeURIComponent(d.id)).join('&'), { method: 'DELETE' }, t.url);
+        pendingDeletes = pendingDeletes.filter(d => !batch.includes(d));
+        savePendingDeletes();
+      }
+      for (const batch of chunks(t.get().filter(r => r.pending && isLocalId(r.id)), PUSH_BATCH)) {
+        const sent = batch.map(r => ({ id: r.id, pending: r.pending }));
+        const data = await atFetch('', {
+          method: 'POST',
+          body: JSON.stringify({ records: batch.map(r => ({ fields: t.fields(r) })) }),
+        }, t.url);
+        sent.forEach((r, i) => settlePush(name, r, data.records[i].id));
+      }
+      for (const batch of chunks(t.get().filter(r => r.pending && !isLocalId(r.id)), PUSH_BATCH)) {
+        const sent = batch.map(r => ({ id: r.id, pending: r.pending }));
+        await atFetch('', {
+          method: 'PATCH',
+          body: JSON.stringify({ records: batch.map(r => ({ id: r.id, fields: t.fields(r) })) }),
+        }, t.url);
+        sent.forEach(r => settlePush(name, r, r.id));
+      }
+    }
+  } catch (e) {
+    console.warn('Airtable push failed, will retry:', e);
+    setSync('err', `Offline · ${pendingCount()} unsaved`);
+    pushRetryTimer = setTimeout(pushPending, pushRetryDelay);
+    pushRetryDelay = Math.min(pushRetryDelay * 2, PUSH_RETRY_MAX_MS);
+    return false;
+  }
+  pushRetryDelay = 30 * 1000;
+  setSync('ok', 'Saved ✓');
+  // Edits made while this pass was in flight go in the next one
+  return pendingCount() ? pushOnce() : true;
+}
+
+// Records may have been replaced or deleted locally while the request was in flight,
+// so look them up again by the id that was sent.
+function settlePush(name, sent, airtableId) {
+  pushGen++;
+  if (sent.id !== airtableId) idAliases[sent.id] = airtableId;
+  const cur = SYNC_TABLES[name].get().find(r => r.id === sent.id);
+  if (!cur) {
+    // Deleted locally mid-create: remove the record that was just made
+    if (sent.id !== airtableId) queueDelete(name, airtableId);
+  } else {
+    cur.id = airtableId;
+    if (cur.pending === sent.pending) delete cur.pending;
+  }
+  saveTableCache(name);
+}
+
+// Server records, minus pending deletes, with unsent local edits on top
+function mergeFetched(name, fetched, full) {
+  const local = SYNC_TABLES[name].get();
+  const unsent = local.filter(r => r.pending);
+  const skip = new Set(unsent.map(r => r.id).concat(pendingDeletes.filter(d => d.table === name).map(d => d.id)));
+  const base = full ? fetched : mergeById(local, fetched);
+  return mergeById(base.filter(r => !skip.has(r.id)), unsent);
+}
 
 // ─── SYNC STATUS ──────────────────────────────────────────────────────────────
 function setSync(status, label) {
@@ -903,6 +982,8 @@ function loadCache() {
   if (calfCached) calfLogs = JSON.parse(calfCached);
   const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
   if (targetsCached) targets = JSON.parse(targetsCached);
+  // Local-only records cached before the outbox existed still need sending
+  Object.values(SYNC_TABLES).forEach(t => t.get().forEach(r => { if (isLocalId(r.id) && !r.pending) markPending(r); }));
   return !!(cached && calfCached && targetsCached);
 }
 
@@ -923,8 +1004,10 @@ async function load(background = false, force = false) {
   const meta = readSyncMeta();
   const now = Date.now();
   if (!force && meta.lastSync && now - Date.parse(meta.lastSync) < SYNC_MIN_INTERVAL_MS) {
+    // Skip the fetch, but still send anything unsent (e.g. on coming back online)
+    pushPending();
     if (background) return;
-    setSync('ok', 'Airtable ✓');
+    if (!pendingCount()) setSync('ok', 'Airtable ✓');
   } else {
     const full = force || !cacheComplete || !meta.lastFull || now - Date.parse(meta.lastFull) >= FULL_SYNC_INTERVAL_MS;
     if (!await sync(meta, full)) return;
@@ -938,17 +1021,25 @@ async function sync(meta, full) {
   if (loadController) loadController.abort();
   const controller = new AbortController();
   loadController = controller;
+  // Send unsent writes first so the fetch includes them; a failed push keeps them pending
+  await pushPending();
+  if (controller.signal.aborted) return false;
   setSync('syncing', 'Syncing...');
   const startedAt = new Date().toISOString();
+  const pushGenAtFetch = pushGen;
   try {
     if (full) {
-      const fetched = await Promise.all([
+      const [newLogs, newCalfLogs, newTargets] = await Promise.all([
         fetchAllLogs(controller.signal),
         fetchAllCalfLogs(controller.signal),
         fetchAllTargets(controller.signal),
       ]);
       if (controller.signal.aborted) return false;
-      [logs, calfLogs, targets] = fetched;
+      // A push that landed mid-fetch made records the fetch can't have seen, so merge instead
+      full = pushGen === pushGenAtFetch;
+      logs = mergeFetched('logs', newLogs, full);
+      calfLogs = mergeFetched('calf', newCalfLogs, full);
+      targets = mergeFetched('targets', newTargets, full);
       cacheComplete = true;
     } else {
       // Seconds precision keeps the formula's date string simple
@@ -958,10 +1049,11 @@ async function sync(meta, full) {
         fetchAllCalfLogs(controller.signal, since),
       ]);
       if (controller.signal.aborted) return false;
-      logs = mergeById(logs, newLogs);
-      calfLogs = mergeById(calfLogs, newCalfLogs);
+      logs = mergeFetched('logs', newLogs, false);
+      calfLogs = mergeFetched('calf', newCalfLogs, false);
     }
-    setSync('ok', 'Airtable ✓');
+    const unsent = pendingCount();
+    setSync(unsent ? 'err' : 'ok', unsent ? `Offline · ${unsent} unsaved` : 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
@@ -969,7 +1061,8 @@ async function sync(meta, full) {
   } catch (e) {
     if (controller.signal.aborted) return false;
     console.warn('Airtable unavailable, using cache:', e);
-    setSync('err', 'Offline (cached)');
+    const unsent = pendingCount();
+    setSync('err', unsent ? `Offline · ${unsent} unsaved` : 'Offline (cached)');
   } finally {
     if (loadController === controller) loadController = null;
   }
@@ -1065,20 +1158,13 @@ function upcomingTarget(key) {
   return t && cur && (t.sets !== cur.sets || t.repsPerSet !== cur.repsPerSet) ? t : null;
 }
 
-async function saveTarget(key, t, effectiveDate) {
+function saveTarget(key, t, effectiveDate) {
   abortLoad();
-  setSync('syncing', 'Saving...');
-  const row = { exercise: key, sets: t.sets, reps: t.repsPerSet, effectiveDate, timestamp: new Date().toISOString() };
+  const row = { id: localId(), exercise: key, sets: t.sets, reps: t.repsPerSet, effectiveDate, timestamp: new Date().toISOString() };
+  markPending(row);
   targets.unshift(row);
-  try {
-    row.id = await createTarget(row);
-    setSync('ok', 'Saved ✓');
-  } catch (e) {
-    console.error(e);
-    row.id = localId();
-    setSync('err', 'Saved locally');
-  }
-  localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
+  saveTableCache('targets');
+  pushPending();
 }
 
 // Before today's target is done: step today's target up/down. After: queue (or undo) tomorrow's bump.
@@ -1087,11 +1173,11 @@ async function bumpTarget(key, dir) {
   const today = localDateKey(new Date());
   if (todaySetsFor(key) >= cur.sets) {
     // dir < 0 undoes a queued bump by re-saving today's target for tomorrow
-    await saveTarget(key, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
+    saveTarget(key, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
   } else {
     const t = dir > 0 ? nextStep(cur) : prevStep(cur);
     state[key].reps = String(t.repsPerSet);
-    await saveTarget(key, t, today);
+    saveTarget(key, t, today);
   }
   renderCards();
 }
@@ -1294,11 +1380,10 @@ async function logExercise(key) {
   abortLoad();
   const btn = document.getElementById('sheetLogBtn');
   btn.disabled = true;
-  btn.textContent = '...';
-  setSync('syncing', 'Saving...');
 
   const now = new Date();
   const log = {
+    id: localId(),
     timestamp: now.toISOString(),
     date: localDateKey(now),
     notes: '',
@@ -1306,19 +1391,10 @@ async function logExercise(key) {
   EXERCISES.forEach(ex => { log[ex.key] = { variant: '', sets: null, reps: null }; });
   log[key] = { variant: s.variant, sets: num(s.sets) || 1, reps: reps };
 
-  try {
-    log.id = await createLog(log);
-    logs.unshift(log);
-    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
-    setSync('ok', 'Saved ✓');
-  } catch (e) {
-    console.error(e);
-    log.id = localId();
-    logs.unshift(log);
-    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
-    setSync('err', 'Saved locally');
-    alert('Airtable unavailable — kept locally.\n\n' + e.message);
-  }
+  markPending(log);
+  logs.unshift(log);
+  saveTableCache('logs');
+  pushPending();
 
   renderCards();
   renderHistory();
@@ -1336,22 +1412,16 @@ async function logExercise(key) {
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 async function deleteEntry(key) {
+  key = currentId(key);
   const log = logs.find(l => logKey(l) === key);
   if (!log || !confirm('Delete this entry?')) return;
   abortLoad();
-  setSync('syncing', 'Deleting...');
-  try {
-    if (log.id && !log.id.startsWith('local-')) await deleteLog(log.id);
-    logs = logs.filter(l => logKey(l) !== key);
-    localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
-    setSync('ok', 'Deleted');
-    renderHistory();
-    renderCards();
-  } catch (e) {
-    console.error(e);
-    setSync('err', 'Delete failed');
-    alert('Delete failed.\n\n' + e.message);
-  }
+  queueDelete('logs', log.id);
+  logs = logs.filter(l => logKey(l) !== key);
+  saveTableCache('logs');
+  pushPending();
+  renderHistory();
+  renderCards();
 }
 
 // ─── HISTORY RENDER ───────────────────────────────────────────────────────────
@@ -2141,43 +2211,20 @@ function buildCalfEntry(dateStr) {
   };
 }
 
-// Every set and note change upserts the day's entry. Saves run one at a time so a quick
-// second set finds the record the first one created instead of creating another.
+// Every set and note change upserts the day's entry. It keeps the day's id (local- until
+// first pushed), so a quick second set updates the same record instead of creating another.
 function saveCalfEntry() {
   const entry = buildCalfEntry(calfDay);
-  calfSaveChain = calfSaveChain.then(() => persistCalfEntry(entry));
-  return calfSaveChain;
-}
-
-async function persistCalfEntry(entry) {
   const existing = calfLogs.find(l => l.date === entry.date);
   entry.timestamp = existing ? existing.timestamp : new Date().toISOString();
+  entry.id = existing ? existing.id : localId();
 
   abortLoad();
-  setSync('syncing', 'Saving...');
-  try {
-    if (existing && !existing.id.startsWith('local-')) {
-      entry.id = existing.id;
-      await updateCalfLog(entry);
-    } else {
-      entry.id = await createCalfLog(entry);
-    }
-    calfLogs = calfLogs.filter(l => l.date !== entry.date);
-    calfLogs.unshift(entry);
-    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
-    setSync('ok', 'Saved ✓');
-  } catch (e) {
-    console.error(e);
-    if (!entry.id) entry.id = existing ? existing.id : localId();
-    calfLogs = calfLogs.filter(l => l.date !== entry.date);
-    calfLogs.unshift(entry);
-    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
-    setSync('err', 'Saved locally');
-    if (!calfOfflineWarned) {
-      calfOfflineWarned = true;
-      alert('Airtable unavailable — kept locally.\n\n' + e.message);
-    }
-  }
+  markPending(entry);
+  calfLogs = calfLogs.filter(l => l.date !== entry.date);
+  calfLogs.unshift(entry);
+  saveTableCache('calf');
+  pushPending();
 
   renderCalfWeek();
   renderCalfChart();
@@ -2185,21 +2232,15 @@ async function persistCalfEntry(entry) {
 }
 async function deleteCalfEntry(id) {
   if (!confirm('Delete this entry?')) return;
+  id = currentId(id);
   abortLoad();
-  setSync('syncing', 'Deleting...');
-  try {
-    if (id && !id.startsWith('local-')) await deleteCalfLog(id);
-    calfLogs = calfLogs.filter(l => l.id !== id);
-    localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
-    setSync('ok', 'Deleted');
-    renderCalfWeek();
-    renderCalfChart();
-    renderHistory();
-  } catch (e) {
-    console.error(e);
-    setSync('err', 'Delete failed');
-    alert('Delete failed.\n\n' + e.message);
-  }
+  queueDelete('calf', id);
+  calfLogs = calfLogs.filter(l => l.id !== id);
+  saveTableCache('calf');
+  pushPending();
+  renderCalfWeek();
+  renderCalfChart();
+  renderHistory();
 }
 
 function renderCalfWeek() {
