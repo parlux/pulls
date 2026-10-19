@@ -483,7 +483,7 @@
       <div class="sync-dot" id="syncDot"></div>
       <span id="syncLabel">—</span>
     </div>
-    <button class="refresh-btn" id="refreshBtn" onclick="load()" aria-label="Refresh">
+    <button class="refresh-btn" id="refreshBtn" onclick="load(false, true)" aria-label="Refresh">
       <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
     </button>
   </div>
@@ -619,6 +619,10 @@ const CALF_CACHE_KEY = 'greyskull_calf_v1_cache';
 
 const AT_TARGETS_URL = `https://api.airtable.com/v0/${AT_BASE}/Targets`;
 const TARGETS_CACHE_KEY = 'greyskull_targets_v1_cache';
+const SYNC_META_KEY = 'greyskull_sync_v1'; // { lastSync, lastFull } ISO times
+const SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000;   // auto-resyncs closer together than this are skipped
+const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // full refetch catches deletes made on other devices
+const SYNC_OVERLAP_MS = 5 * 60 * 1000;          // incremental window starts early to absorb clock skew
 const MAX_SETS = 5, LADDER_RESET_SETS = 3, BUMP_AFTER_DAYS = 7;
 
 const CALF_SCHEDULE = ['Off', 'A', 'A', 'B', 'A', 'A', 'B']; // Date.getDay() index, Sun..Sat
@@ -710,16 +714,22 @@ async function atFetch(path = '', opts = {}, baseUrl = AT_URL) {
   return res.json();
 }
 
-async function fetchAllLogs(signal) {
+// since: ISO time — only fetch records modified after it (incremental sync)
+async function fetchRecords(baseUrl, signal, since) {
   let records = [], offset = null;
   do {
     const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
+    if (since) p.set('filterByFormula', `IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE('${since}'))`);
     if (offset) p.set('offset', offset);
-    const data = await atFetch('?' + p, { signal });
+    const data = await atFetch('?' + p, { signal }, baseUrl);
     records = records.concat(data.records);
     offset = data.offset || null;
   } while (offset);
-  return records.map(normalizeRecord);
+  return records;
+}
+
+async function fetchAllLogs(signal, since) {
+  return (await fetchRecords(AT_URL, signal, since)).map(normalizeRecord);
 }
 
 function cap(s) { return s[0].toUpperCase() + s.slice(1); }
@@ -771,15 +781,7 @@ async function deleteLog(id) { await atFetch('/' + id, { method: 'DELETE' }); }
 
 // ─── TARGETS AIRTABLE API ─────────────────────────────────────────────────────
 async function fetchAllTargets(signal) {
-  let records = [], offset = null;
-  do {
-    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
-    if (offset) p.set('offset', offset);
-    const data = await atFetch('?' + p, { signal }, AT_TARGETS_URL);
-    records = records.concat(data.records);
-    offset = data.offset || null;
-  } while (offset);
-  return records.map(r => ({
+  return (await fetchRecords(AT_TARGETS_URL, signal)).map(r => ({
     id: r.id,
     exercise: r.fields.Exercise || '',
     sets: r.fields.Sets ?? null,
@@ -800,16 +802,8 @@ async function createTarget(t) {
 }
 
 // ─── CALF AIRTABLE API ────────────────────────────────────────────────────────
-async function fetchAllCalfLogs(signal) {
-  let records = [], offset = null;
-  do {
-    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
-    if (offset) p.set('offset', offset);
-    const data = await atFetch('?' + p, { signal }, AT_CALF_URL);
-    records = records.concat(data.records);
-    offset = data.offset || null;
-  } while (offset);
-  return records.map(normalizeCalfRecord);
+async function fetchAllCalfLogs(signal, since) {
+  return (await fetchRecords(AT_CALF_URL, signal, since)).map(normalizeCalfRecord);
 }
 
 function parseSetJSON(v) {
@@ -893,41 +887,96 @@ let loadController = null;
 // A write makes local state newer than any in-flight fetch, so drop that fetch.
 function abortLoad() { loadController?.abort(); }
 
+function readSyncMeta() {
+  try { return JSON.parse(localStorage.getItem(SYNC_META_KEY)) || {}; } catch (e) { return {}; }
+}
+
+// Returns true when all three tables were cached
+function loadCache() {
+  const cached = localStorage.getItem(CACHE_KEY);
+  if (cached) {
+    logs = JSON.parse(cached);
+    // Entries cached before an exercise was added lack its key
+    logs.forEach(l => EXERCISES.forEach(ex => { l[ex.key] ??= { variant: '', sets: null, reps: null }; }));
+  }
+  const calfCached = localStorage.getItem(CALF_CACHE_KEY);
+  if (calfCached) calfLogs = JSON.parse(calfCached);
+  const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
+  if (targetsCached) targets = JSON.parse(targetsCached);
+  return !!(cached && calfCached && targetsCached);
+}
+
+// Updated records replace their cached copies; result stays newest first
+function mergeById(existing, updates) {
+  const ids = new Set(updates.map(r => r.id));
+  return updates.concat(existing.filter(r => !ids.has(r.id)))
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+}
+
+let cacheComplete = null;
+
 // background: resync triggered by focus/online — don't reset the calf form inputs.
-async function load(background = false) {
+// force: refresh button — always sync, and refetch everything.
+async function load(background = false, force = false) {
+  // In-memory state is the cache plus any writes since, so read the cache only once
+  if (cacheComplete === null) cacheComplete = loadCache();
+  const meta = readSyncMeta();
+  const now = Date.now();
+  if (!force && meta.lastSync && now - Date.parse(meta.lastSync) < SYNC_MIN_INTERVAL_MS) {
+    if (background) return;
+    setSync('ok', 'Airtable ✓');
+  } else {
+    const full = force || !cacheComplete || !meta.lastFull || now - Date.parse(meta.lastFull) >= FULL_SYNC_INTERVAL_MS;
+    if (!await sync(meta, full)) return;
+  }
+  renderAll(background);
+}
+
+// full: refetch all three tables; otherwise only records changed since the last sync.
+// Returns false if a write or newer load aborted it.
+async function sync(meta, full) {
   if (loadController) loadController.abort();
   const controller = new AbortController();
   loadController = controller;
   setSync('syncing', 'Syncing...');
+  const startedAt = new Date().toISOString();
   try {
-    [logs, calfLogs, targets] = await Promise.all([
-      fetchAllLogs(controller.signal),
-      fetchAllCalfLogs(controller.signal),
-      fetchAllTargets(controller.signal),
-    ]);
-    if (controller.signal.aborted) return;
+    if (full) {
+      const fetched = await Promise.all([
+        fetchAllLogs(controller.signal),
+        fetchAllCalfLogs(controller.signal),
+        fetchAllTargets(controller.signal),
+      ]);
+      if (controller.signal.aborted) return false;
+      [logs, calfLogs, targets] = fetched;
+      cacheComplete = true;
+    } else {
+      // Seconds precision keeps the formula's date string simple
+      const since = new Date(Date.parse(meta.lastSync) - SYNC_OVERLAP_MS).toISOString().slice(0, 19) + 'Z';
+      const [newLogs, newCalfLogs] = await Promise.all([
+        fetchAllLogs(controller.signal, since),
+        fetchAllCalfLogs(controller.signal, since),
+      ]);
+      if (controller.signal.aborted) return false;
+      logs = mergeById(logs, newLogs);
+      calfLogs = mergeById(calfLogs, newCalfLogs);
+    }
     setSync('ok', 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
+    localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastSync: startedAt, lastFull: full ? startedAt : meta.lastFull }));
   } catch (e) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) return false;
     console.warn('Airtable unavailable, using cache:', e);
     setSync('err', 'Offline (cached)');
-    const cached = localStorage.getItem(CACHE_KEY);
-    if (cached) {
-      logs = JSON.parse(cached);
-      // Entries cached before an exercise was added lack its key
-      logs.forEach(l => EXERCISES.forEach(ex => { l[ex.key] ??= { variant: '', sets: null, reps: null }; }));
-    }
-    const calfCached = localStorage.getItem(CALF_CACHE_KEY);
-    if (calfCached) calfLogs = JSON.parse(calfCached);
-    const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
-    if (targetsCached) targets = JSON.parse(targetsCached);
   } finally {
     if (loadController === controller) loadController = null;
   }
+  return true;
+}
 
+function renderAll(background) {
   // Pre-fill each exercise variant from its most recent log entry
   EXERCISES.forEach(ex => {
     const recent = logs.find(l => l[ex.key]?.variant);

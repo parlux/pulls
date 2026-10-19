@@ -1,4 +1,4 @@
-const CACHE = 'greyskull-v5';
+const CACHE = 'greyskull-v6';
 const PRECACHE = [
   './',
   'index.html',
