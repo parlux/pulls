@@ -494,6 +494,29 @@
     font-family: var(--font-display); font-size: 26px; letter-spacing: 2px;
   }
 
+  /* ─── CALF REST TIMER ─── */
+  .calf-rest {
+    position: relative; overflow: hidden; display: flex; align-items: center; gap: 8px;
+    min-height: 44px; padding: 0 6px 0 12px; border-radius: 10px;
+    background: var(--surface2); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
+  }
+  .calf-rest:empty { display: none; }
+  .calf-rest .rest-fill { position: absolute; inset: 0 auto 0 0; background: rgba(91,141,239,0.16); transition: width 0.25s linear; }
+  .calf-rest > *:not(.rest-fill) { position: relative; }
+  .calf-rest .rest-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .calf-rest .rest-time { flex: 1; font-family: var(--font-display); font-size: 24px; letter-spacing: 1px; color: var(--blue); }
+  .calf-rest.over .rest-time { color: var(--green); }
+  .calf-rest button {
+    height: 32px; padding: 0 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--text);
+    font-family: var(--font-body); font-size: 12px; font-weight: 700;
+  }
+  .calf-rest button.add { border-color: var(--blue); color: var(--blue); }
+  .calf-rest-float {
+    position: fixed; z-index: 150; left: 16px; right: 16px; max-width: 528px; margin: 0 auto;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px)); background: var(--surface); box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  }
+
   /* ─── LOADING ─── */
   .loading-overlay {
     position: fixed; inset: 0; background: var(--bg);
@@ -639,6 +662,8 @@
   <div class="sheet-scrim" onclick="closeCalfSheet()"></div>
   <div class="sheet calf-sheet" id="calfSheet" role="dialog" aria-modal="true" aria-labelledby="calfSheetTitle"></div>
 </div>
+<!-- CALF REST (floats above the tab bar while the set sheet is closed) -->
+<div class="calf-rest calf-rest-float" id="calfRestFloat"></div>
 <!-- HOLD TIMER (full screen; during the hold the whole screen is the stop button) -->
 <div class="hold-timer" id="holdTimer" role="dialog" aria-modal="true" aria-label="Hold timer" onclick="tapHoldTimer()"></div>
 <!-- BOTTOM TAB BAR -->
@@ -746,6 +771,7 @@ let calfDay = '';        // date shown on the Calf tab
 let calfDaySetOn = '';   // real date when calfDay was chosen; a new day resets the tab to today
 let calfSetsState = {};  // logged sets for calfDay, keyed by calf log field, in stored form
 let calfSheet = null;    // { exId, sideKey, editIdx, draft } while the set sheet is open
+let calfRest = null;     // { end, total } while the between-sets rest countdown runs
 let holdTimer = null;    // { phase, prep, limit, t0, ... } while the hold timer is open
 
 const defaultState = () => ({
@@ -1953,6 +1979,7 @@ function renderFocus() {
 // ─── CALF RENDER ──────────────────────────────────────────────────────────────
 const CALF_SET_KEYS = ['heelRaiseLeft', 'heelRaiseRight', 'bigToeLeft', 'bigToeRight', 'seatedCalfRaise',
   'isoHoldLeft', 'isoHoldRight', 'bentKneeLeft', 'bentKneeRight'];
+const CALF_REST_SECS = 60;
 const PRIOR_ACTIVITY_OPTIONS = ['Skated', 'Rode', 'Long walk', 'Nothing'];
 
 // Exercises for a day: per-side set counts, targets and the per-set level scale (ordered more → less help)
@@ -1972,9 +1999,9 @@ function calfPlan(dateStr) {
     const heelLevel = pull ? scale('pull', 'Pull on doorframe', HEEL_PULL_LEVELS) : assist;
     const isoLevel = pull ? scale('pull', 'Pull on doorframe', ISO_PULL_LEVELS) : scale('grip', 'Grip', GRIP_LEVELS);
     return [
-      { id: 'heelRaise', title: 'Two-up, one-down heel raise', sub: pull ? 'Doorframe pull' : 'Clean reps', kind: 'reps',
+      { id: 'heelRaise', title: 'Two-up, one-down heel raise', sub: pull ? 'Doorframe pull' : 'Clean reps', kind: 'reps', rest: CALF_REST_SECS,
         sides: [side('heelRaiseLeft', 'L', 5, 4, heelLevel), side('heelRaiseRight', 'R', 2, 6)] },
-      { id: 'isoHold', title: 'Mid-height iso hold', sub: 'Doorframe · 30s cap', kind: 'seconds', cap: 30,
+      { id: 'isoHold', title: 'Mid-height iso hold', sub: 'Doorframe · 30s cap', kind: 'seconds', cap: 30, rest: CALF_REST_SECS,
         sides: [side('isoHoldLeft', 'L', 3, null, isoLevel), side('isoHoldRight', 'R', 2, null, isoLevel)] },
     ];
   }
@@ -2131,6 +2158,7 @@ function openCalfSheet(exId) {
 function closeCalfSheet() {
   calfSheet = null;
   document.getElementById('calfSheetWrap').classList.remove('sheet-open');
+  renderCalfRest();
 }
 
 function setCalfSheetSide(key) {
@@ -2230,7 +2258,8 @@ function renderCalfSheet() {
     </div>
     <div class="quick-reps">${quick.map(n =>
       `<button class="${n === val ? 'active' : ''}" onclick="setCalfDraft('${prop}',${n})">${n}</button>`).join('')}</div>
-    ${timer}${weight}${level}${chips}${action}`;
+    ${timer}${weight}${level}${chips}<div class="calf-rest" id="calfRestSheet"></div>${action}`;
+  renderCalfRest();
 }
 
 function logCalfSet() {
@@ -2247,6 +2276,8 @@ function logCalfSet() {
   calfSheet.editIdx = null;
   saveCalfEntry();
   renderCalfDay();
+  if (!wasEdit && ex.rest && calfDay === localDateKey(new Date())
+      && !calfPlan(calfDay).every(e => e.sides.every(s => calfSets(s).length >= s.sets))) startCalfRest(ex.rest);
 
   // Stay on this side until its sets are done, then move to the other side, then close
   if (!wasEdit && sets.length >= side.sets) {
@@ -2325,6 +2356,7 @@ function openHoldTimer() {
   const editing = calfSheet.editIdx != null;
   const setNo = editing ? calfSheet.editIdx + 1 : calfSets(side).length + 1;
   const level = side.level ? calfSheet.draft[side.level.prop] : '';
+  stopCalfRest();
   holdTimer = {
     phase: 'prep', prep: holdPrepSecs(), limit: ex.cap || side.target || null,
     title: ex.title, sub: [side.label, `Set ${setNo}`, level].filter(Boolean).join(' · '),
@@ -2419,6 +2451,65 @@ function closeHoldTimer() {
   try { holdWakeLock?.release(); } catch (e) {}
   holdWakeLock = null;
   document.getElementById('calfSheetBtn')?.focus({ preventScroll: true });
+}
+
+// ─── CALF REST TIMER ──────────────────────────────────────────────────────────
+// Small countdown between heel raise / iso hold sets. Lives in the set sheet, or floats
+// above the tab bar once the sheet is closed.
+function startCalfRest(secs) {
+  stopCalfRest();
+  // Unlock audio now, inside the Log tap, so the end-of-rest beep can play (iOS)
+  try {
+    holdAudio = holdAudio || new (window.AudioContext || window.webkitAudioContext)();
+    holdAudio.resume();
+  } catch (e) {}
+  calfRest = { end: Date.now() + secs * 1000, total: secs, beeped: false };
+  calfRest.tick = setInterval(renderCalfRest, 250);
+  renderCalfRest();
+}
+
+function addCalfRest(secs) {
+  if (!calfRest) return;
+  const left = Math.max(0, calfRest.end - Date.now());
+  calfRest.end = Date.now() + left + secs * 1000;
+  calfRest.total = Math.max(calfRest.total, Math.ceil((calfRest.end - Date.now()) / 1000));
+  calfRest.beeped = false;
+  renderCalfRest();
+}
+
+function stopCalfRest() {
+  if (calfRest) clearInterval(calfRest.tick);
+  calfRest = null;
+  renderCalfRest();
+}
+
+function renderCalfRest() {
+  const inSheet = document.getElementById('calfRestSheet');
+  const float = document.getElementById('calfRestFloat');
+  const target = calfSheet ? inSheet : float;
+  if (inSheet && target !== inSheet) inSheet.innerHTML = '';
+  if (target !== float) float.innerHTML = '';
+  if (!calfRest || !target) { if (target) target.innerHTML = ''; return; }
+
+  const left = Math.ceil((calfRest.end - Date.now()) / 1000);
+  if (left <= 0 && !calfRest.beeped) {
+    calfRest.beeped = true;
+    holdBeep(1320, 400);
+    holdBuzz([150, 80, 150]);
+  }
+  // Leave "Go" up for a few seconds, then clear
+  if (left <= -4) return stopCalfRest();
+
+  const over = left <= 0;
+  const t = Math.max(0, left);
+  const frac = over ? 1 : 1 - t / calfRest.total;
+  target.className = `calf-rest${target === float ? ' calf-rest-float' : ''}${over ? ' over' : ''}`;
+  target.innerHTML = `
+    <div class="rest-fill" style="width:${(frac * 100).toFixed(1)}%"></div>
+    <span class="rest-lbl">Rest</span>
+    <span class="rest-time">${over ? 'GO' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`}</span>
+    ${over ? '' : '<button class="add" onclick="addCalfRest(15)">+15s</button>'}
+    <button onclick="stopCalfRest()">${over ? 'OK' : 'Skip'}</button>`;
 }
 
 // ─── CALF SAVE ────────────────────────────────────────────────────────────────
