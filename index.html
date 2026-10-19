@@ -443,6 +443,57 @@
     flex-shrink: 0; padding: 0 18px; border-radius: 12px; border: 1px solid var(--border); background: none;
     color: var(--accent2); font-family: var(--font-body); font-size: 14px; font-weight: 700; cursor: pointer;
   }
+  /* ─── HOLD TIMER ─── */
+  .timer-launch { display: flex; gap: 8px; }
+  .timer-start-btn {
+    flex: 1; min-height: 56px; border-radius: 12px; cursor: pointer;
+    border: 1.5px solid var(--accent); background: #1f1a10; color: var(--accent);
+    font-family: var(--font-display); font-size: 22px; letter-spacing: 1.5px;
+  }
+  .timer-start-btn:active { background: var(--accent); color: var(--bg); }
+  .timer-prep {
+    flex-shrink: 0; min-width: 76px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: none; color: var(--muted);
+    font-family: var(--font-body); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .timer-prep b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 22px; letter-spacing: 0; color: var(--text); }
+
+  .hold-timer {
+    position: fixed; inset: 0; z-index: 300; display: none;
+    flex-direction: column; align-items: center; justify-content: space-between; gap: 16px;
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg); color: var(--text); font-family: var(--font-body);
+    user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .hold-timer.open { display: flex; }
+  .hold-timer.hold { background: #1f1a10; cursor: pointer; }
+  .hold-timer.done { background: #0f2418; }
+  .ht-head { text-align: center; }
+  .ht-title { font-size: 15px; font-weight: 700; }
+  .ht-sub { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .ht-phase { font-family: var(--font-display); font-size: 34px; letter-spacing: 3px; color: var(--muted); }
+  .hold .ht-phase { color: var(--accent); }
+  .done .ht-phase { color: var(--green); }
+  .ht-dial { position: relative; width: min(82vw, 52vh, 420px); aspect-ratio: 1; }
+  .ht-dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ht-dial circle { fill: none; stroke-width: 6; }
+  .ht-dial .ring-track { stroke: var(--border); }
+  .ht-dial .ring-fill { stroke: var(--muted); stroke-linecap: round; }
+  .hold .ht-dial .ring-fill { stroke: var(--accent); }
+  .done .ht-dial .ring-fill { stroke: var(--green); }
+  .ht-num {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-family: var(--font-display); font-size: min(46vw, 30vh, 240px); line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .ht-num small { font-size: 0.35em; color: var(--muted); margin-left: 0.04em; }
+  .ht-foot { width: 100%; max-width: 520px; text-align: center; }
+  .ht-hint { font-family: var(--font-display); font-size: 26px; letter-spacing: 2px; color: var(--accent); padding: 18px 0; }
+  .ht-cancel {
+    width: 100%; min-height: 72px; border-radius: 16px; cursor: pointer;
+    border: 1.5px solid var(--border); background: var(--surface); color: var(--text);
+    font-family: var(--font-display); font-size: 26px; letter-spacing: 2px;
+  }
+
   /* ─── LOADING ─── */
   .loading-overlay {
     position: fixed; inset: 0; background: var(--bg);
@@ -588,6 +639,8 @@
   <div class="sheet-scrim" onclick="closeCalfSheet()"></div>
   <div class="sheet calf-sheet" id="calfSheet" role="dialog" aria-modal="true" aria-labelledby="calfSheetTitle"></div>
 </div>
+<!-- HOLD TIMER (full screen; during the hold the whole screen is the stop button) -->
+<div class="hold-timer" id="holdTimer" role="dialog" aria-modal="true" aria-label="Hold timer" onclick="tapHoldTimer()"></div>
 <!-- BOTTOM TAB BAR -->
 <div class="tab-bar">
   <button class="tab-btn active" id="tabToday" onclick="showView('Today')">
@@ -693,6 +746,7 @@ let calfDay = '';        // date shown on the Calf tab
 let calfDaySetOn = '';   // real date when calfDay was chosen; a new day resets the tab to today
 let calfSetsState = {};  // logged sets for calfDay, keyed by calf log field, in stored form
 let calfSheet = null;    // { exId, sideKey, editIdx, draft } while the set sheet is open
+let holdTimer = null;    // { phase, prep, limit, t0, ... } while the hold timer is open
 
 const defaultState = () => ({
   chinup: { variant: 'Band-Assisted', sets: '1', reps: '' },
@@ -1380,6 +1434,11 @@ function setVariant(key, variant) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && sheetKey) closeLogSheet();
+  if (holdTimer) {
+    if (e.key === 'Escape') closeHoldTimer();
+    else if ((e.key === ' ' || e.key === 'Enter') && holdTimer.phase === 'hold') { e.preventDefault(); stopHoldTimer(); }
+    return;
+  }
   if (e.key === 'Escape' && calfSheet) closeCalfSheet();
 });
 
@@ -2124,6 +2183,11 @@ function renderCalfSheet() {
   const quick = ex.cap ? [10, 15, 20, 25, 30].filter(n => n <= ex.cap)
     : prop === 'seconds' ? [-10, -5, 0, 5, 10].map(d => Math.max(15, Math.round(val / 5) * 5) + d)
     : [0, 1, 2, 3, 4].map(i => Math.max(1, val - 2) + i);
+  const timer = prop !== 'seconds' ? '' : `
+    <div class="timer-launch">
+      <button class="timer-start-btn" onclick="openHoldTimer()">▶ START TIMER</button>
+      <button class="timer-prep" onclick="cycleHoldPrep()" aria-label="Get-ready countdown length">Prep<b>${holdPrepSecs()}s</b></button>
+    </div>`;
   const weight = ex.kind !== 'repsWeight' ? '' : `
     <div class="sheet-target">
       <span class="grow">Weight <b>${draft.weight} kg</b></span>
@@ -2166,7 +2230,7 @@ function renderCalfSheet() {
     </div>
     <div class="quick-reps">${quick.map(n =>
       `<button class="${n === val ? 'active' : ''}" onclick="setCalfDraft('${prop}',${n})">${n}</button>`).join('')}</div>
-    ${weight}${level}${chips}${action}`;
+    ${timer}${weight}${level}${chips}${action}`;
 }
 
 function logCalfSet() {
@@ -2209,6 +2273,152 @@ function removeCalfSet() {
   saveCalfEntry();
   renderCalfDay();
   renderCalfSheet();
+}
+
+// ─── HOLD TIMER ───────────────────────────────────────────────────────────────
+// Get-ready countdown, then counts the hold up until tapped or the cap/target is hit.
+// The result goes into the sheet's draft, ready to log.
+const HOLD_PREP_KEY = 'greyskull_hold_prep';
+const HOLD_PREP_OPTIONS = [3, 5, 10];
+const HOLD_RING_R = 46, HOLD_RING_C = 2 * Math.PI * HOLD_RING_R;
+let holdAudio = null, holdWakeLock = null;
+
+function holdPrepSecs() {
+  let v = 5;
+  try { v = Number(localStorage.getItem(HOLD_PREP_KEY)) || 5; } catch (e) {}
+  return HOLD_PREP_OPTIONS.includes(v) ? v : 5;
+}
+
+function cycleHoldPrep() {
+  const next = HOLD_PREP_OPTIONS[(HOLD_PREP_OPTIONS.indexOf(holdPrepSecs()) + 1) % HOLD_PREP_OPTIONS.length];
+  try { localStorage.setItem(HOLD_PREP_KEY, String(next)); } catch (e) {}
+  renderCalfSheet();
+}
+
+function holdBeep(freq, ms) {
+  try {
+    const ctx = holdAudio;
+    if (!ctx) return;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    const t = ctx.currentTime;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.4, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + ms / 1000 + 0.02);
+  } catch (e) {}
+}
+
+const holdBuzz = pattern => { try { navigator.vibrate?.(pattern); } catch (e) {} };
+
+function openHoldTimer() {
+  const { ex, side } = calfSheetCtx();
+  // Audio has to be unlocked inside the tap that starts the timer (iOS)
+  try {
+    holdAudio = holdAudio || new (window.AudioContext || window.webkitAudioContext)();
+    holdAudio.resume();
+  } catch (e) { holdAudio = null; }
+  try { navigator.wakeLock?.request('screen').then(l => { if (holdTimer) holdWakeLock = l; else l.release(); }).catch(() => {}); } catch (e) {}
+
+  const editing = calfSheet.editIdx != null;
+  const setNo = editing ? calfSheet.editIdx + 1 : calfSets(side).length + 1;
+  const level = side.level ? calfSheet.draft[side.level.prop] : '';
+  holdTimer = {
+    phase: 'prep', prep: holdPrepSecs(), limit: ex.cap || side.target || null,
+    title: ex.title, sub: [side.label, `Set ${setNo}`, level].filter(Boolean).join(' · '),
+    t0: performance.now(), lastSec: null, seconds: 0,
+  };
+  holdTimer.tick = setInterval(tickHoldTimer, 50);
+  document.getElementById('holdTimer').classList.add('open');
+  tickHoldTimer();
+}
+
+function tickHoldTimer() {
+  const t = holdTimer;
+  if (!t || t.phase === 'done') return;
+  const elapsed = (performance.now() - t.t0) / 1000;
+
+  if (t.phase === 'prep') {
+    const left = Math.ceil(t.prep - elapsed);
+    if (left <= 0) {
+      t.phase = 'hold';
+      t.t0 = performance.now();
+      t.lastSec = 0;
+      holdBeep(1320, 450);
+      holdBuzz(200);
+      return renderHoldTimer(0, 0);
+    }
+    if (left !== t.lastSec) {
+      t.lastSec = left;
+      if (left <= 3) { holdBeep(880, 120); holdBuzz(60); }
+    }
+    return renderHoldTimer(left, 1 - (t.prep - elapsed) / t.prep);
+  }
+
+  const secs = Math.floor(elapsed);
+  t.seconds = t.limit ? Math.min(t.limit, secs) : secs;
+  if (t.limit && secs >= t.limit) return finishHoldTimer(true);
+  if (secs !== t.lastSec) {
+    t.lastSec = secs;
+    if (secs > 0 && secs % 10 === 0) holdBeep(990, 90);
+  }
+  renderHoldTimer(t.seconds, t.limit ? elapsed / t.limit : (elapsed % 60) / 60);
+}
+
+function renderHoldTimer(num, frac) {
+  const t = holdTimer;
+  const el = document.getElementById('holdTimer');
+  el.className = `hold-timer open ${t.phase}`;
+  const phase = t.phase === 'prep' ? 'Get ready' : t.phase === 'hold' ? 'Hold' : (t.capped ? 'Cap reached' : 'Done');
+  const capTxt = t.limit ? (t.phase === 'hold' ? `${t.limit - num}s to cap` : `${t.limit}s cap`) : '';
+  const foot = t.phase === 'prep'
+    ? `<button class="ht-cancel" onclick="event.stopPropagation(); closeHoldTimer()">CANCEL</button>`
+    : t.phase === 'hold' ? `<div class="ht-hint">TAP ANYWHERE TO STOP</div>`
+    : `<div class="ht-hint" style="color:var(--green)">✓ ${num}s recorded</div>`;
+  el.innerHTML = `
+    <div class="ht-head"><div class="ht-title">${h(t.title)}</div><div class="ht-sub">${h(t.sub)}</div></div>
+    <div class="ht-phase">${phase}</div>
+    <div class="ht-dial">
+      <svg viewBox="0 0 100 100"><circle class="ring-track" cx="50" cy="50" r="${HOLD_RING_R}"/>
+        <circle class="ring-fill" cx="50" cy="50" r="${HOLD_RING_R}"
+          stroke-dasharray="${(Math.max(0, Math.min(1, frac)) * HOLD_RING_C).toFixed(2)} ${HOLD_RING_C.toFixed(2)}"/></svg>
+      <div class="ht-num"><span>${num}${t.phase === 'prep' ? '' : '<small>s</small>'}</span></div>
+    </div>
+    <div class="ht-sub">${capTxt}</div>
+    <div class="ht-foot">${foot}</div>`;
+}
+
+// Taps only stop the hold, and not in the first moment so a late tap from the countdown doesn't end it
+function tapHoldTimer() {
+  if (holdTimer?.phase === 'hold' && performance.now() - holdTimer.t0 > 600) stopHoldTimer();
+}
+
+function stopHoldTimer() {
+  if (holdTimer?.phase === 'hold') finishHoldTimer(false);
+}
+
+function finishHoldTimer(capped) {
+  const t = holdTimer;
+  clearInterval(t.tick);
+  t.phase = 'done';
+  t.capped = capped;
+  if (capped) { holdBeep(1320, 700); holdBuzz([200, 100, 200]); } else { holdBeep(660, 250); holdBuzz(120); }
+  const secs = Math.max(1, t.seconds);
+  renderHoldTimer(secs, t.limit ? secs / t.limit : 1);
+  if (calfSheet) setCalfDraft('seconds', secs);
+  setTimeout(() => { if (holdTimer === t) closeHoldTimer(); }, 1100);
+}
+
+function closeHoldTimer() {
+  if (!holdTimer) return;
+  clearInterval(holdTimer.tick);
+  holdTimer = null;
+  document.getElementById('holdTimer').className = 'hold-timer';
+  try { holdWakeLock?.release(); } catch (e) {}
+  holdWakeLock = null;
+  document.getElementById('calfSheetBtn')?.focus({ preventScroll: true });
 }
 
 // ─── CALF SAVE ────────────────────────────────────────────────────────────────
