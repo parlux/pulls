@@ -50,7 +50,7 @@
   .sync-status {
     display: flex; align-items: center; gap: 6px;
     font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--muted);
+    text-transform: uppercase; color: var(--muted); cursor: pointer;
   }
   .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background 0.3s; }
   .sync-dot.ok { background: var(--green); }
@@ -479,7 +479,7 @@
 <div class="top-nav">
   <h1>GREYSKULL</h1>
   <div class="nav-right">
-    <div class="sync-status">
+    <div class="sync-status" onclick="promptToken()" title="Set Airtable token">
       <div class="sync-dot" id="syncDot"></div>
       <span id="syncLabel">—</span>
     </div>
@@ -606,11 +606,11 @@
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const AT_TOKEN = 'patij5jqH0iaquE10.c6c9db88b8a895ba7aec072ac7ec08959bbcf07474e194bbd8845f08bf01ca3e';
+// The token lives only in this device's localStorage — tap the sync status to set it
+const AT_TOKEN_KEY = 'greyskull_at_token';
 const AT_BASE  = 'appskyRmm9tzyMPwn';
 const AT_TABLE = 'Workouts';
 const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
-const AT_HEADS = { 'Authorization': `Bearer ${AT_TOKEN}`, 'Content-Type': 'application/json' };
 const CACHE_KEY = 'greyskull_v2_cache';
 
 const AT_CALF_TABLE = 'CalfRehab';
@@ -706,7 +706,11 @@ let state = defaultState();
 
 // ─── AIRTABLE API ─────────────────────────────────────────────────────────────
 async function atFetch(path = '', opts = {}, baseUrl = AT_URL) {
-  const res = await fetch(baseUrl + path, { headers: AT_HEADS, ...opts });
+  const token = localStorage.getItem(AT_TOKEN_KEY);
+  if (!token) throw new Error('No Airtable token');
+  const res = await fetch(baseUrl + path, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, ...opts });
+  // A rejected token is useless; drop it so the status asks for a new one
+  if (res.status === 401) localStorage.removeItem(AT_TOKEN_KEY);
   if (!res.ok) throw new Error(`AT ${res.status}: ${await res.text()}`);
   if (res.status === 204) return null;
   return res.json();
@@ -916,7 +920,7 @@ async function pushOnce() {
     }
   } catch (e) {
     console.warn('Airtable push failed, will retry:', e);
-    setSync('err', `Offline · ${pendingCount()} unsaved`);
+    setSync('err', offlineLabel());
     pushRetryTimer = setTimeout(pushPending, pushRetryDelay);
     pushRetryDelay = Math.min(pushRetryDelay * 2, PUSH_RETRY_MAX_MS);
     return false;
@@ -953,6 +957,19 @@ function mergeFetched(name, fetched, full) {
 }
 
 // ─── SYNC STATUS ──────────────────────────────────────────────────────────────
+function offlineLabel() {
+  if (!localStorage.getItem(AT_TOKEN_KEY)) return 'No token · tap to set';
+  const unsent = pendingCount();
+  return unsent ? `Offline · ${unsent} unsaved` : 'Offline (cached)';
+}
+
+function promptToken() {
+  const token = prompt('Airtable personal access token (stored on this device only):', '');
+  if (token === null || !token.trim()) return;
+  localStorage.setItem(AT_TOKEN_KEY, token.trim());
+  load(false, true);
+}
+
 function setSync(status, label) {
   document.getElementById('syncDot').className = 'sync-dot ' + status;
   document.getElementById('syncLabel').textContent = label;
@@ -1007,7 +1024,8 @@ async function load(background = false, force = false) {
     // Skip the fetch, but still send anything unsent (e.g. on coming back online)
     pushPending();
     if (background) return;
-    if (!pendingCount()) setSync('ok', 'Airtable ✓');
+    if (!localStorage.getItem(AT_TOKEN_KEY)) setSync('err', offlineLabel());
+    else if (!pendingCount()) setSync('ok', 'Airtable ✓');
   } else {
     const full = force || !cacheComplete || !meta.lastFull || now - Date.parse(meta.lastFull) >= FULL_SYNC_INTERVAL_MS;
     if (!await sync(meta, full)) return;
@@ -1053,7 +1071,7 @@ async function sync(meta, full) {
       calfLogs = mergeFetched('calf', newCalfLogs, false);
     }
     const unsent = pendingCount();
-    setSync(unsent ? 'err' : 'ok', unsent ? `Offline · ${unsent} unsaved` : 'Airtable ✓');
+    setSync(unsent ? 'err' : 'ok', unsent ? offlineLabel() : 'Airtable ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
@@ -1061,8 +1079,7 @@ async function sync(meta, full) {
   } catch (e) {
     if (controller.signal.aborted) return false;
     console.warn('Airtable unavailable, using cache:', e);
-    const unsent = pendingCount();
-    setSync('err', unsent ? `Offline · ${unsent} unsaved` : 'Offline (cached)');
+    setSync('err', offlineLabel());
   } finally {
     if (loadController === controller) loadController = null;
   }
