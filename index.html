@@ -141,6 +141,10 @@
   .ex-row-sub { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
   .ex-row-state { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-variant-numeric: tabular-nums; }
   .ex-row-state.ready { color: var(--accent); }
+  .ex-row-up { color: var(--accent); font-weight: 600; }
+  .ex-row-states { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+  .ex-row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .bump-chip { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; color: var(--bg); background: var(--accent); border-radius: 4px; padding: 2px 5px; }
   .ex-row-chev { color: var(--muted); font-size: 20px; line-height: 1; }
   .ex-row.done { min-height: 44px; background: transparent; border-style: dashed; }
   .ex-row.done .ex-row-name { font-size: 14px; color: var(--muted); }
@@ -1348,27 +1352,33 @@ function renderCards() {
     const rest = restRemaining(ex.key);
     if (target) { totalTarget += target.sets; totalDone += Math.min(done, target.sets); }
     const status = target && done >= target.sets ? 'done' : (rest > 0 ? 'rest' : 'ready');
-    return { ex, done, target, rest, status };
+    const pending = upcomingTarget(ex.key);
+    const offer = bumpOffer(target, pending, target ? streakDays(ex.key, target) : 0, BUMP_AFTER_DAYS);
+    return { ex, done, target, rest, status, pending, offer };
   });
 
-  const rowHtml = ({ ex, done, target, rest, status }) => {
+  const rowHtml = ({ ex, done, target, rest, status, pending, offer }) => {
     const v = state[ex.key].variant;
+    const chip = offer ? '<span class="bump-chip">↑ Bump</span>' : '';
     if (status === 'done') {
+      const next = pending ? ` · ↑ ${fmtTarget(pending)} next`
+        : offer ? ` · <span class="ex-row-up">↑ ${fmtTarget(offer)}?</span>` : '';
       return `<button class="ex-row done" onclick="openLogSheet('${ex.key}')">
           <span class="ex-dot" style="background:${ex.color}"></span>
           <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span></span>
-          <span class="ex-row-sub">${h(v)} · ${done} sets${upcomingTarget(ex.key) ? ` · ↑ ${fmtTarget(upcomingTarget(ex.key))} next` : ''}</span>
-          <span class="ex-row-check">✓</span>
+          <span class="ex-row-sub">${h(v)} · ${done} sets${next}</span>
+          ${chip}<span class="ex-row-check">✓</span>
         </button>`;
     }
-    const sub = target ? `${h(v)} · ${target.sets} × ${target.repsPerSet}` : h(v);
+    const sub = target
+      ? `${h(v)} · ${fmtTarget(target)}${offer ? ` <span class="ex-row-up">→ ${fmtTarget(offer)}</span>` : ''}` : h(v);
     const stateHtml = status === 'ready'
       ? '<span class="ex-row-state ready">Ready</span>'
       : `<span class="ex-row-state">Rest ${Math.ceil(rest / 60000)}m</span>`;
     return `<button class="ex-row" onclick="openLogSheet('${ex.key}')">
         ${ringHtml(done, target?.sets)}
         <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span><span class="ex-row-sub">${sub}</span></span>
-        ${stateHtml}
+        ${offer ? `<span class="ex-row-states">${stateHtml}${chip}</span>` : stateHtml}
         <span class="ex-row-chev">›</span>
       </button>`;
   };
@@ -1442,11 +1452,16 @@ function renderLogSheet() {
   ).join('');
 }
 
+// The suggested next target once the current one has held for `need` days (or sessions) with no
+// bump queued, offered whether or not today's sets are done; null otherwise
+function bumpOffer(target, pending, streak, need) {
+  return target && !pending && streak >= need ? nextStep(target) : null;
+}
+
 // Target −/+ row, or the bump card once the target has held for `need` days (or sessions).
 // `bump(dir)` returns the onclick call that steps the target.
 function renderTargetRow(el, { target, pending, isDone, streak, need, unit, bump }) {
-  // A full week at the target with no bump queued: offer it whether or not today's sets are done
-  const bumpReady = target && !pending && streak >= need;
+  const bumpReady = !!bumpOffer(target, pending, streak, need);
   el.classList.toggle('bump', !!bumpReady);
   el.innerHTML = isDone && pending
     ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="${bump(-1)}">Undo</button>`
@@ -2157,12 +2172,17 @@ function calfCardHtml(ex) {
     return `<span class="calf-side"><b>${s.short}</b><span class="calf-bars">${bars}</span><span class="calf-side-info">${info}</span></span>`;
   };
   const complete = ex.sides.every(s => calfSets(s).length >= s.sets);
-  const pending = ex.sides.some(s => s.key === CALF_BUMP_KEY) && calfDay === localDateKey(new Date())
-    && upcomingTarget(CALF_BUMP_KEY, calfTarget(calfDay));
+  // The ladder is only shown, and only changed, from today
+  const ladder = ex.sides.some(s => s.key === CALF_BUMP_KEY) && calfDay === localDateKey(new Date());
+  const target = ladder && calfTarget(calfDay);
+  const pending = ladder && upcomingTarget(CALF_BUMP_KEY, target);
+  const offer = ladder && bumpOffer(target, pending, calfStreak(target), CALF_BUMP_SESSIONS);
+  const next = pending ? ` · ↑ L ${fmtTarget(pending)} next`
+    : offer ? ` · <span class="ex-row-up">↑ L ${fmtTarget(offer)}?</span>` : '';
   return `<button class="calf-card${complete ? ' done' : ''}" onclick="openCalfSheet('${ex.id}')">
       <span class="calf-card-top">
-        <span><span class="ex-row-name">${h(ex.title)}</span><span class="ex-row-sub">${h(ex.sub)} · ${calfTargetsText(ex)}${pending ? ` · ↑ L ${fmtTarget(pending)} next` : ''}</span></span>
-        ${complete ? '<span class="ex-row-check">✓</span>' : '<span class="ex-row-chev">›</span>'}
+        <span><span class="ex-row-name">${h(ex.title)}</span><span class="ex-row-sub">${h(ex.sub)} · ${calfTargetsText(ex)}${next}</span></span>
+        <span class="ex-row-right">${offer ? '<span class="bump-chip">↑ Bump</span>' : ''}${complete ? '<span class="ex-row-check">✓</span>' : '<span class="ex-row-chev">›</span>'}</span>
       </span>
       ${ex.sides.map(sideRow).join('')}
     </button>`;
