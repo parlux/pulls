@@ -1384,7 +1384,7 @@ function renderCards() {
   };
 
   const order = { ready: 0, rest: 1, done: 2 };
-  const upNext = rows.filter(r => r.status !== 'done').sort((a, b) => order[a.status] - order[b.status]);
+  const upNext = rows.filter(r => r.status !== 'done').sort((a, b) => order[a.status] - order[b.status] || a.rest - b.rest);
   const done = rows.filter(r => r.status === 'done');
   container.innerHTML =
     (upNext.length ? `<div class="section-lbl ex-group-lbl">Up next</div>${upNext.map(rowHtml).join('')}` : '') +
