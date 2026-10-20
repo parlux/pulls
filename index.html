@@ -134,6 +134,7 @@
     padding: 10px 14px; margin-bottom: 8px; text-align: left;
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
     color: var(--text); font-family: var(--font-body); cursor: pointer; transition: border-color 0.15s;
+    position: relative; overflow: hidden;
   }
   .ex-row:hover, .ex-row:focus-visible { border-color: var(--accent); outline: none; }
   .ex-row-main { flex: 1; min-width: 0; }
@@ -210,6 +211,29 @@
   }
   .quick-reps button.active { color: var(--text); border-color: var(--muted); }
   .sheet .card-log-btn { padding: 15px; font-size: 22px; border-radius: 12px; }
+
+  /* ─── PERSONAL BESTS ─── */
+  .sheet-vol { display: flex; flex-direction: column; gap: 6px; }
+  .sheet-vol-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sheet-vol-top b { color: var(--text); }
+  .sheet-vol-top b.hit { color: var(--accent); }
+  .sheet-vol-track { position: relative; height: 8px; border-radius: 4px; background: var(--surface2); }
+  .sheet-vol-done, .sheet-vol-next { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; transition: width 0.2s; }
+  .sheet-vol-done { background: var(--text); opacity: 0.75; }
+  .sheet-vol-next { background: repeating-linear-gradient(135deg, var(--accent) 0 4px, rgba(232,160,32,0.45) 4px 8px); }
+  .sheet-vol-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+  .stepper-val b.pr { color: var(--accent); }
+  .pr-chip {
+    display: inline-block; margin-left: 7px; vertical-align: 2px; padding: 3px 6px 1px; border-radius: 4px;
+    font-family: var(--font-display); font-size: 13px; letter-spacing: 1px; line-height: 1;
+    background: var(--accent); color: var(--bg);
+  }
+  .pr-chip.vol { background: none; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .ex-row-sheen {
+    position: absolute; inset: 0; pointer-events: none; transform: translateX(-110%);
+    background: linear-gradient(105deg, transparent 30%, rgba(232,160,32,0.3) 48%, rgba(255,230,170,0.5) 50%, rgba(232,160,32,0.3) 52%, transparent 70%);
+  }
+  .pr-embers { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 260; }
 
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-lbl { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
@@ -624,6 +648,7 @@
     </div>
     <div class="sheet-target" id="sheetTarget"></div>
     <div class="variant-pills" id="sheetVariants"></div>
+    <div class="sheet-vol" id="sheetVol" hidden></div>
     <div class="stepper">
       <button class="stepper-btn" onclick="stepReps(-1)" aria-label="One fewer rep">−</button>
       <div class="stepper-val"><b id="sheetReps"></b><span class="input-lbl">Reps</span></div>
@@ -1360,12 +1385,13 @@ function renderCards() {
   const rowHtml = ({ ex, done, target, rest, status, pending, offer }) => {
     const v = state[ex.key].variant;
     const chip = offer ? '<span class="bump-chip">↑ Bump</span>' : '';
+    const prs = prChipsHtml(todayPRs(ex.key));
     if (status === 'done') {
       const next = pending ? ` · ↑ ${fmtTarget(pending)} next`
         : offer ? ` · <span class="ex-row-up">↑ ${fmtTarget(offer)}?</span>` : '';
-      return `<button class="ex-row done" onclick="openLogSheet('${ex.key}')">
+      return `<button class="ex-row done" data-key="${ex.key}" onclick="openLogSheet('${ex.key}')">
           <span class="ex-dot" style="background:${ex.color}"></span>
-          <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span></span>
+          <span class="ex-row-main"><span class="ex-row-name">${ex.label}${prs}</span></span>
           <span class="ex-row-sub">${h(v)} · ${done} sets${next}</span>
           ${chip}<span class="ex-row-check">✓</span>
         </button>`;
@@ -1375,9 +1401,9 @@ function renderCards() {
     const stateHtml = status === 'ready'
       ? '<span class="ex-row-state ready">Ready</span>'
       : `<span class="ex-row-state">Rest ${Math.ceil(rest / 60000)}m</span>`;
-    return `<button class="ex-row" onclick="openLogSheet('${ex.key}')">
+    return `<button class="ex-row" data-key="${ex.key}" onclick="openLogSheet('${ex.key}')">
         ${ringHtml(done, target?.sets)}
-        <span class="ex-row-main"><span class="ex-row-name">${ex.label}</span><span class="ex-row-sub">${sub}</span></span>
+        <span class="ex-row-main"><span class="ex-row-name">${ex.label}${prs}</span><span class="ex-row-sub">${sub}</span></span>
         ${offer ? `<span class="ex-row-states">${stateHtml}${chip}</span>` : stateHtml}
         <span class="ex-row-chev">›</span>
       </button>`;
@@ -1400,12 +1426,165 @@ function renderCards() {
   if (sheetKey) renderLogSheet();
 }
 
+// ─── PERSONAL BESTS ───────────────────────────────────────────────────────────
+// Bests on one exercise + variant from days before `before`: the most reps in a set and the most
+// total reps in a day. Null with no history, so a first day on a variant quietly sets the baseline.
+function variantBests(key, variant, before) {
+  let bestSet = 0;
+  const days = {};
+  logs.forEach(l => {
+    const e = l[key];
+    if (e.reps == null || e.variant !== variant || l.date >= before) return;
+    bestSet = Math.max(bestSet, e.reps);
+    days[l.date] = (days[l.date] || 0) + (e.sets || 1) * e.reps;
+  });
+  const totals = Object.values(days);
+  return totals.length ? { bestSet, bestDay: Math.max(...totals) } : null;
+}
+
+// Today's best set and total reps on one variant
+function variantToday(key, variant) {
+  const today = localDateKey(new Date());
+  return logs.reduce((t, l) => {
+    const e = l[key];
+    if (l.date !== today || e.reps == null || e.variant !== variant) return t;
+    return { bestSet: Math.max(t.bestSet, e.reps), volume: t.volume + (e.sets || 1) * e.reps };
+  }, { bestSet: 0, volume: 0 });
+}
+
+// Whether today holds a rep PR and/or a volume PR on any variant logged today
+function todayPRs(key) {
+  const today = localDateKey(new Date());
+  const pr = { rep: false, vol: false };
+  new Set(logs.filter(l => l.date === today && l[key].reps != null).map(l => l[key].variant)).forEach(v => {
+    const base = variantBests(key, v, today);
+    if (!base) return;
+    const t = variantToday(key, v);
+    pr.rep ||= t.bestSet > base.bestSet;
+    pr.vol ||= t.volume > base.bestDay;
+  });
+  return pr;
+}
+
+// What logging `reps` × `sets` now would win. A rep max can fire again on a later set that beats
+// it; a volume max fires once a day, on the set that crosses the old best day.
+function prWins(key, variant, reps, sets) {
+  const base = variantBests(key, variant, localDateKey(new Date()));
+  if (!base) return { rep: false, vol: false };
+  const t = variantToday(key, variant);
+  return {
+    rep: reps > Math.max(base.bestSet, t.bestSet),
+    vol: t.volume <= base.bestDay && t.volume + reps * sets > base.bestDay,
+  };
+}
+
+const prChipsHtml = pr =>
+  (pr.rep ? '<span class="pr-chip">REP PR</span>' : '') + (pr.vol ? '<span class="pr-chip vol">VOL PR</span>' : '');
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Today's volume against the best day, with the set about to be logged striped on the end
+function renderVolumeBar(el, key, variant, pending) {
+  const base = variantBests(key, variant, localDateKey(new Date()));
+  el.hidden = !base;
+  if (!base) return;
+  const done = variantToday(key, variant).volume, total = done + pending;
+  const scale = Math.max(base.bestDay, total) * 1.15;
+  const pct = n => `${Math.min(100, n / scale * 100)}%`;
+  el.innerHTML = `
+    <div class="sheet-vol-top">
+      <span>Best set <b>${base.bestSet}</b> · best day <b>${base.bestDay}</b></span>
+      <span>Today ${done && pending ? `${done} + ${pending} = ` : ''}<b class="${total > base.bestDay ? 'hit' : ''}">${total}</b></span>
+    </div>
+    <div class="sheet-vol-track">
+      <div class="sheet-vol-next" style="width:${pct(total)}"></div>
+      <div class="sheet-vol-done" style="width:${pct(done)}"></div>
+      <div class="sheet-vol-mark" id="sheetVolMark" style="left:${pct(base.bestDay)}"></div>
+    </div>`;
+}
+
+// Embers thrown up from the centre of each element, on a full-screen canvas that outlives the sheet
+function prEmbers(els) {
+  const cv = document.createElement('canvas');
+  cv.className = 'pr-embers';
+  document.body.appendChild(cv);
+  const dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const cols = ['#e8a020', '#f0b030', '#d63a2f', '#ffe2a8'];
+  const perEl = els.length > 1 ? 50 : 64;
+  const ps = els.flatMap(el => {
+    const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    return Array.from({ length: perEl }, () => {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.3, sp = 2.2 + Math.random() * 5;
+      return { x: x + (Math.random() - 0.5) * 24, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 0, max: 40 + Math.random() * 28, c: cols[Math.random() * cols.length | 0], w: 1.2 + Math.random() * 2 };
+    });
+  });
+  (function tick() {
+    ctx.clearRect(0, 0, W, H);
+    let alive = 0;
+    ps.forEach(p => {
+      if (p.life++ > p.max) return;
+      alive++;
+      p.vy += 0.16; p.vx *= 0.985; p.x += p.vx; p.y += p.vy;
+      ctx.globalAlpha = 1 - p.life / p.max; ctx.strokeStyle = p.c; ctx.lineWidth = p.w; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 2.2, p.y - p.vy * 2.2); ctx.stroke();
+    });
+    if (alive) requestAnimationFrame(tick); else cv.remove();
+  })();
+}
+
+// In the sheet, right after a PR set is logged
+function celebrateInSheet(win) {
+  holdBuzz([18, 40, 18]);
+  const reps = document.getElementById('sheetReps');
+  if (win.rep) reps.classList.add('pr');
+  if (reducedMotion()) return;
+  const els = [];
+  if (win.rep) {
+    els.push(reps);
+    reps.animate([
+      { textShadow: '0 0 0 rgba(232,160,32,0)', transform: 'scale(1)' },
+      { textShadow: '0 0 28px rgba(232,160,32,0.9)', transform: 'scale(1.22)', offset: 0.25 },
+      { textShadow: '0 0 0 rgba(232,160,32,0)', transform: 'scale(1)' },
+    ], { duration: 900, easing: 'ease-out' });
+  }
+  const mark = document.getElementById('sheetVolMark');
+  if (win.vol && mark) els.push(mark);
+  prEmbers(els);
+}
+
+// On the Today card once the sheet closes: a sheen across the row and the new chips pop in
+function celebrateCard(key, win) {
+  const row = document.querySelector(`.ex-row[data-key="${key}"]`);
+  if (!row) return;
+  const chips = [...row.querySelectorAll('.pr-chip')].filter(c => c.classList.contains('vol') ? win.vol : win.rep);
+  if (reducedMotion()) {
+    chips.forEach(c => c.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250 }));
+    return;
+  }
+  const sheen = document.createElement('span');
+  sheen.className = 'ex-row-sheen';
+  row.appendChild(sheen);
+  sheen.animate([{ transform: 'translateX(-110%)' }, { transform: 'translateX(110%)' }],
+    { duration: 700, easing: 'ease-in-out' }).onfinish = () => sheen.remove();
+  chips.forEach((c, i) => c.animate([
+    { transform: 'scale(0)', opacity: 0 },
+    { transform: 'scale(1.25)', opacity: 1, offset: 0.7 },
+    { transform: 'scale(1)', opacity: 1 },
+  ], { duration: 300, delay: 300 + i * 140, easing: 'ease-out', fill: 'backwards' }));
+}
+
 // ─── LOG SHEET ────────────────────────────────────────────────────────────────
 let sheetKey = null;
+let sheetJustLogged = false; // between logging a set and the sheet closing: no next-set preview
 
 function openLogSheet(key) {
   sheetKey = key;
   state[key].reps = String(defaultReps(key));
+  document.getElementById('sheetReps').classList.remove('pr');
   renderLogSheet();
   document.getElementById('logSheetWrap').classList.add('sheet-open');
   document.getElementById('sheetLogBtn').focus({ preventScroll: true });
@@ -1444,6 +1623,7 @@ function renderLogSheet() {
   document.getElementById('sheetVariants').innerHTML = ex.variants.map(v =>
     `<button class="pill${s.variant === v ? ' active' : ''}" onclick="setVariant('${key}','${esc(v)}')">${h(v)}</button>`
   ).join('');
+  renderVolumeBar(document.getElementById('sheetVol'), key, s.variant, sheetJustLogged ? 0 : reps * (num(s.sets) || 1));
   document.getElementById('sheetReps').textContent = reps;
 
   const start = Math.max(1, reps - 2);
@@ -1522,9 +1702,11 @@ async function logExercise(key) {
   };
   EXERCISES.forEach(ex => { log[ex.key] = { variant: '', sets: null, reps: null }; });
   log[key] = { variant: s.variant, sets: num(s.sets) || 1, reps: reps };
+  const win = prWins(key, s.variant, reps, log[key].sets);
 
   markPending(log);
   logs.unshift(log);
+  sheetJustLogged = true;
   saveTableCache('logs');
   pushPending();
 
@@ -1532,14 +1714,18 @@ async function logExercise(key) {
   renderHistory();
 
   // Keep reps and variant so the next set is one tap
-  btn.textContent = '✓';
+  const isPR = win.rep || win.vol;
+  btn.textContent = win.rep && win.vol ? '✓ NEW MAX' : win.rep ? '✓ REP MAX' : win.vol ? '✓ VOLUME MAX' : '✓';
   btn.style.background = 'var(--green)';
+  if (isPR) celebrateInSheet(win);
   setTimeout(() => {
+    sheetJustLogged = false;
     closeLogSheet();
     btn.disabled = false;
     btn.textContent = 'LOG SET';
     btn.style.background = '';
-  }, 700);
+    if (isPR) celebrateCard(key, win);
+  }, isPR ? 1100 : 700);
 }
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
