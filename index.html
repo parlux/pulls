@@ -191,6 +191,7 @@
     border: 1px solid var(--border); background: none; color: var(--text);
     font-family: var(--font-body); font-size: 13px; font-weight: 700;
   }
+  .sheet-target button:disabled { opacity: 0.35; cursor: default; }
   .sheet-target button.primary { border-color: var(--accent); color: var(--accent); }
   .sheet-target.bump { background: #1f1a10; border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; color: var(--text); }
   .sheet-target.bump button.primary { background: var(--accent); color: var(--bg); white-space: nowrap; }
@@ -748,6 +749,8 @@ const ISO_PULL_LEVELS  = ['Heavy', 'Moderate', 'Light', 'Fingertips', 'Balance o
 const CALF_BUMP_KEY = 'heelRaiseLeft';
 const CALF_HEEL_DEFAULT = { sets: 5, repsPerSet: 4 };
 const CALF_BUMP_SESSIONS = 4;
+// Rehab rep cap: past this the heel raise gets harder by lightening the pull, not more reps
+const CALF_HEEL_CAP = { reps: 10, hint: 'Lighten the pull' };
 
 function calfBlock(dateStr) {
   return dateStr >= CALF_BLOCK2_START ? 2 : 1;
@@ -1230,16 +1233,35 @@ function showView(name) {
 }
 
 // ─── TARGET ───────────────────────────────────────────────────────────────────
-// Set ladder: add a set up to MAX_SETS, then drop to LADDER_RESET_SETS with one more rep.
-// Targets only move when the user bumps them.
-function nextStep({ sets, repsPerSet }) {
-  return sets < MAX_SETS ? { sets: sets + 1, repsPerSet } : { sets: LADDER_RESET_SETS, repsPerSet: repsPerSet + 1 };
+// Set ladder: add a set up to MAX_SETS, then drop to LADDER_RESET_SETS with more reps.
+// The rep step grows with reps so a bump stays a similar jump. Targets only move when the user bumps them.
+function repStep(reps) {
+  return reps < 10 ? 1 : reps < 20 ? 2 : reps < 30 ? 3 : 5;
+}
+
+// cap: { reps, hint } or null. Reps stop at cap.reps; null once the target is maxed at MAX_SETS × cap.
+function nextStep({ sets, repsPerSet }, cap) {
+  if (sets < MAX_SETS) return { sets: sets + 1, repsPerSet };
+  if (cap && repsPerSet >= cap.reps) return null;
+  return { sets: LADDER_RESET_SETS, repsPerSet: Math.min(repsPerSet + repStep(repsPerSet), cap?.reps ?? Infinity) };
 }
 
 function prevStep({ sets, repsPerSet }) {
   if (sets > LADDER_RESET_SETS || (sets > 1 && repsPerSet === 1)) return { sets: sets - 1, repsPerSet };
-  if (repsPerSet > 1) return { sets: MAX_SETS, repsPerSet: repsPerSet - 1 };
-  return { sets, repsPerSet };
+  if (repsPerSet === 1) return { sets, repsPerSet };
+  // Smallest rep count whose step up reaches this one, so − then + lands back here
+  let reps = 1;
+  while (reps + repStep(reps) < repsPerSet) reps++;
+  return { sets: MAX_SETS, repsPerSet: reps };
+}
+
+// Rep cap for the exercise's current variant, from its rank standard. Hint names the next harder
+// variant, or more weight once there is none.
+function exerciseCap(key) {
+  const std = RANK_STANDARDS[key], variant = state[key].variant;
+  if (!std?.[variant]) return null;
+  const names = Object.keys(std), next = names[names.indexOf(variant) + 1];
+  return { reps: std[variant][2], hint: next ? `Try ${next}` : 'Add weight' };
 }
 
 function fmtTarget(t) { return `${t.sets} × ${t.repsPerSet}`; }
@@ -1306,11 +1328,13 @@ function saveTarget(key, t, effectiveDate) {
 async function bumpTarget(key, dir) {
   const cur = getTarget(key) || { sets: 1, repsPerSet: defaultReps(key) };
   const today = localDateKey(new Date());
+  const up = nextStep(cur, exerciseCap(key));
+  if (dir > 0 && !up) return;
   if (todaySetsFor(key) >= cur.sets) {
     // dir < 0 undoes a queued bump by re-saving today's target for tomorrow
-    saveTarget(key, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
+    saveTarget(key, dir > 0 ? up : cur, localDateKey(addDays(new Date(), 1)));
   } else {
-    const t = dir > 0 ? nextStep(cur) : prevStep(cur);
+    const t = dir > 0 ? up : prevStep(cur);
     state[key].reps = String(t.repsPerSet);
     saveTarget(key, t, today);
   }
@@ -1378,17 +1402,20 @@ function renderCards() {
     if (target) { totalTarget += target.sets; totalDone += Math.min(done, target.sets); }
     const status = target && done >= target.sets ? 'done' : (rest > 0 ? 'rest' : 'ready');
     const pending = upcomingTarget(ex.key);
-    const offer = bumpOffer(target, pending, target ? streakDays(ex.key, target) : 0, BUMP_AFTER_DAYS);
-    return { ex, done, target, rest, status, pending, offer };
+    const streak = target ? streakDays(ex.key, target) : 0, cap = exerciseCap(ex.key);
+    const offer = bumpOffer(target, pending, streak, BUMP_AFTER_DAYS, cap);
+    const maxed = maxedHint(target, pending, streak, BUMP_AFTER_DAYS, cap);
+    return { ex, done, target, rest, status, pending, offer, maxed };
   });
 
-  const rowHtml = ({ ex, done, target, rest, status, pending, offer }) => {
+  const rowHtml = ({ ex, done, target, rest, status, pending, offer, maxed }) => {
     const v = state[ex.key].variant;
-    const chip = offer ? '<span class="bump-chip">↑ Bump</span>' : '';
+    const chip = offer ? '<span class="bump-chip">↑ Bump</span>' : maxed ? '<span class="bump-chip">Maxed</span>' : '';
     const prs = prChipsHtml(todayPRs(ex.key));
     if (status === 'done') {
       const next = pending ? ` · ↑ ${fmtTarget(pending)} next`
-        : offer ? ` · <span class="ex-row-up">↑ ${fmtTarget(offer)}?</span>` : '';
+        : offer ? ` · <span class="ex-row-up">↑ ${fmtTarget(offer)}?</span>`
+        : maxed ? ` · <span class="ex-row-up">${h(maxed)}?</span>` : '';
       return `<button class="ex-row done" data-key="${ex.key}" onclick="openLogSheet('${ex.key}')">
           <span class="ex-dot" style="background:${ex.color}"></span>
           <span class="ex-row-main"><span class="ex-row-name">${ex.label}${prs}</span></span>
@@ -1397,14 +1424,15 @@ function renderCards() {
         </button>`;
     }
     const sub = target
-      ? `${h(v)} · ${fmtTarget(target)}${offer ? ` <span class="ex-row-up">→ ${fmtTarget(offer)}</span>` : ''}` : h(v);
+      ? `${h(v)} · ${fmtTarget(target)}${offer ? ` <span class="ex-row-up">→ ${fmtTarget(offer)}</span>`
+        : maxed ? ` <span class="ex-row-up">· ${h(maxed)}?</span>` : ''}` : h(v);
     const stateHtml = status === 'ready'
       ? '<span class="ex-row-state ready">Ready</span>'
       : `<span class="ex-row-state">Rest ${Math.ceil(rest / 60000)}m</span>`;
     return `<button class="ex-row" data-key="${ex.key}" onclick="openLogSheet('${ex.key}')">
         ${ringHtml(done, target?.sets)}
         <span class="ex-row-main"><span class="ex-row-name">${ex.label}${prs}</span><span class="ex-row-sub">${sub}</span></span>
-        ${offer ? `<span class="ex-row-states">${stateHtml}${chip}</span>` : stateHtml}
+        ${chip ? `<span class="ex-row-states">${stateHtml}${chip}</span>` : stateHtml}
         <span class="ex-row-chev">›</span>
       </button>`;
   };
@@ -1613,7 +1641,7 @@ function renderLogSheet() {
 
   renderTargetRow(document.getElementById('sheetTarget'), {
     target, pending: upcomingTarget(key), isDone: target && done >= target.sets,
-    streak: target ? streakDays(key, target) : 0, need: BUMP_AFTER_DAYS, unit: 'day',
+    streak: target ? streakDays(key, target) : 0, need: BUMP_AFTER_DAYS, unit: 'day', cap: exerciseCap(key),
     bump: dir => `bumpTarget('${key}',${dir})`,
   });
 
@@ -1634,24 +1662,34 @@ function renderLogSheet() {
 
 // The suggested next target once the current one has held for `need` days (or sessions) with no
 // bump queued, offered whether or not today's sets are done; null otherwise
-function bumpOffer(target, pending, streak, need) {
-  return target && !pending && streak >= need ? nextStep(target) : null;
+function bumpOffer(target, pending, streak, need, cap) {
+  return target && !pending && streak >= need ? nextStep(target, cap) : null;
+}
+
+// The cap's hint once a target maxed at the cap has held for `need` days (or sessions); null otherwise
+function maxedHint(target, pending, streak, need, cap) {
+  return target && !pending && streak >= need && !nextStep(target, cap) ? cap.hint : null;
 }
 
 // Target −/+ row, or the bump card once the target has held for `need` days (or sessions).
 // `bump(dir)` returns the onclick call that steps the target.
-function renderTargetRow(el, { target, pending, isDone, streak, need, unit, bump }) {
-  const bumpReady = !!bumpOffer(target, pending, streak, need);
-  el.classList.toggle('bump', !!bumpReady);
+function renderTargetRow(el, { target, pending, isDone, streak, need, unit, cap, bump }) {
+  const bumpReady = !!bumpOffer(target, pending, streak, need, cap);
+  const maxed = maxedHint(target, pending, streak, need, cap);
+  const up = target && nextStep(target, cap);
+  el.classList.toggle('bump', bumpReady || !!maxed);
   el.innerHTML = isDone && pending
     ? `<span class="grow">Next time <b>${fmtTarget(pending)}</b></span><button onclick="${bump(-1)}">Undo</button>`
     : bumpReady && isDone
-    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Next time <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="${bump(1)}">Bump</button>`
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Next time <b>${fmtTarget(up)}</b>?</span><button class="primary" onclick="${bump(1)}">Bump</button>`
     : bumpReady
-    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Ready for <b>${fmtTarget(nextStep(target))}</b>?</span><button class="primary" onclick="${bump(1)}">Bump today</button>`
+    ? `<span class="grow">A week at ${fmtTarget(target)} ✓ Ready for <b>${fmtTarget(up)}</b>?</span><button class="primary" onclick="${bump(1)}">Bump today</button>`
+    : maxed
+    ? `${isDone ? '' : `<button onclick="${bump(-1)}" aria-label="Easier target">−</button>`}
+       <span class="grow">Maxed at ${fmtTarget(target)} ✓ <b>${h(maxed)}</b></span>`
     : `${isDone ? '' : `<button onclick="${bump(-1)}" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
        <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · ${unit} ${Math.min(streak + (isDone ? 0 : 1), need)} of ${need}` : ''}</span>
-       <button onclick="${bump(1)}" aria-label="Harder target">+</button>`;
+       <button onclick="${bump(1)}" aria-label="Harder target"${target && !up ? ' disabled' : ''}>+</button>`;
 }
 
 function setReps(n) {
@@ -2258,11 +2296,13 @@ function calfStreak(target) {
 function bumpCalfTarget(dir) {
   const today = localDateKey(new Date());
   const cur = calfTarget(today);
+  const up = nextStep(cur, CALF_HEEL_CAP);
+  if (dir > 0 && !up) return;
   if ((calfSetsState[CALF_BUMP_KEY] || []).length >= cur.sets) {
     // dir < 0 undoes a queued bump by re-saving today's target for tomorrow
-    saveTarget(CALF_BUMP_KEY, dir > 0 ? nextStep(cur) : cur, localDateKey(addDays(new Date(), 1)));
+    saveTarget(CALF_BUMP_KEY, dir > 0 ? up : cur, localDateKey(addDays(new Date(), 1)));
   } else {
-    saveTarget(CALF_BUMP_KEY, dir > 0 ? nextStep(cur) : prevStep(cur), today);
+    saveTarget(CALF_BUMP_KEY, dir > 0 ? up : prevStep(cur), today);
   }
   renderCalfDay();
   if (!calfSheet) return;
@@ -2362,13 +2402,16 @@ function calfCardHtml(ex) {
   const ladder = ex.sides.some(s => s.key === CALF_BUMP_KEY) && calfDay === localDateKey(new Date());
   const target = ladder && calfTarget(calfDay);
   const pending = ladder && upcomingTarget(CALF_BUMP_KEY, target);
-  const offer = ladder && bumpOffer(target, pending, calfStreak(target), CALF_BUMP_SESSIONS);
+  const streak = ladder && calfStreak(target);
+  const offer = ladder && bumpOffer(target, pending, streak, CALF_BUMP_SESSIONS, CALF_HEEL_CAP);
+  const maxed = ladder && maxedHint(target, pending, streak, CALF_BUMP_SESSIONS, CALF_HEEL_CAP);
   const next = pending ? ` · ↑ L ${fmtTarget(pending)} next`
-    : offer ? ` · <span class="ex-row-up">↑ L ${fmtTarget(offer)}?</span>` : '';
+    : offer ? ` · <span class="ex-row-up">↑ L ${fmtTarget(offer)}?</span>`
+    : maxed ? ` · <span class="ex-row-up">L ${h(maxed.toLowerCase())}?</span>` : '';
   return `<button class="calf-card${complete ? ' done' : ''}" onclick="openCalfSheet('${ex.id}')">
       <span class="calf-card-top">
         <span><span class="ex-row-name">${h(ex.title)}</span><span class="ex-row-sub">${h(ex.sub)} · ${calfTargetsText(ex)}${next}</span></span>
-        <span class="ex-row-right">${offer ? '<span class="bump-chip">↑ Bump</span>' : ''}${complete ? '<span class="ex-row-check">✓</span>' : '<span class="ex-row-chev">›</span>'}</span>
+        <span class="ex-row-right">${offer ? '<span class="bump-chip">↑ Bump</span>' : maxed ? '<span class="bump-chip">Maxed</span>' : ''}${complete ? '<span class="ex-row-check">✓</span>' : '<span class="ex-row-chev">›</span>'}</span>
       </span>
       ${ex.sides.map(sideRow).join('')}
     </button>`;
@@ -2527,7 +2570,8 @@ function renderCalfSheet() {
     const target = calfTarget(calfDay);
     renderTargetRow(targetEl, {
       target, pending: upcomingTarget(CALF_BUMP_KEY, target), isDone: sets.length >= target.sets,
-      streak: calfStreak(target), need: CALF_BUMP_SESSIONS, unit: 'A-day', bump: dir => `bumpCalfTarget(${dir})`,
+      streak: calfStreak(target), need: CALF_BUMP_SESSIONS, unit: 'A-day', cap: CALF_HEEL_CAP,
+      bump: dir => `bumpCalfTarget(${dir})`,
     });
   } else targetEl.remove();
   renderCalfRest();
