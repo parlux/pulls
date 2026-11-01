@@ -18,7 +18,7 @@ Bent-knee heel raise, 10 kg, 2 × 15 each leg.
 
 ### Tracker notes
 
-Entries dated before 2026-10-05 use the Block 1 form below; Block 2 adds Airtable fields `IsoHoldLeft_Sets`, `IsoHoldRight_Sets` (`{seconds, grip}`) and `BentKneeLeft_Sets`, `BentKneeRight_Sets` (`{reps, weight}`). Block 1 fields are kept for history. From 2026-10-10, `HeelRaiseLeft_Sets` stores `{reps, pull}` and iso holds store `{seconds, pull}`; `RightAssist`/`RightAssistAvg` are left empty for those entries.
+Data lives in the Supabase table `calf_rehab` (moved from Airtable on 2026-11-01; per-set columns are `jsonb` arrays). Entries dated before 2026-10-05 use the Block 1 form below; Block 2 adds `iso_hold_left`, `iso_hold_right` (`{seconds, grip}`) and `bent_knee_left`, `bent_knee_right` (`{reps, weight}`). Block 1 columns are kept for history. From 2026-10-10, `heel_raise_left` stores `{reps, pull}` and iso holds store `{seconds, pull}`; `assist`/`assist_avg` (the left-leg assist, Airtable's legacy `RightAssist`/`RightAssistAvg`) are left empty for those entries.
 
 ## Program — Block 1 (2026-09-19 → 2026-10-04)
 
