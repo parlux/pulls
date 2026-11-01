@@ -187,6 +187,11 @@
   .sheet-grab { width: 38px; height: 4px; background: var(--border); border-radius: 2px; align-self: center; }
   .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   .sheet-title { font-size: 21px; font-weight: 700; }
+  .sheet-progress-link {
+    margin-top: 6px; padding: 0; border: none; background: none; cursor: pointer;
+    font-family: var(--font-body); font-size: 12px; font-weight: 600; color: var(--accent);
+  }
+  .sheet-progress-link:hover, .sheet-progress-link:focus-visible { text-decoration: underline; outline: none; }
   .sheet-sub { font-size: 12px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
   .set-dots { display: flex; gap: 5px; padding-top: 6px; }
   .set-dots i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); }
@@ -669,6 +674,7 @@
       <div>
         <div class="sheet-title" id="sheetTitle"></div>
         <div class="sheet-sub" id="sheetSub"></div>
+        <button class="sheet-progress-link" onclick="openProgressFor(sheetKey)">View progress ›</button>
       </div>
       <div class="set-dots" id="sheetDots"></div>
     </div>
@@ -2159,6 +2165,15 @@ function renderExPills() {
     <button class="pill${ex.key === progressEx ? ' active' : ''}" onclick="setProgressEx('${ex.key}')">
       <span class="dot" style="background:${ex.color}"></span>${ex.label}
     </button>`).join('');
+}
+
+// Jump from an exercise's log sheet to its Progress charts
+function openProgressFor(key) {
+  if (!key) return;
+  closeLogSheet();
+  progressEx = key;
+  showView('Progress');
+  window.scrollTo(0, 0);
 }
 
 function setProgressEx(key) {
