@@ -161,6 +161,15 @@
   .ring span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
   /* ─── LOG SHEET ─── */
+  .signin { margin: auto; width: min(340px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); font-family: var(--font-body); }
+  .signin::backdrop { background: rgba(0, 0, 0, 0.6); }
+  .signin form { display: flex; flex-direction: column; gap: 12px; }
+  .signin input { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); color: var(--text); font: inherit; font-size: 16px; }
+  .signin-error { min-height: 16px; font-size: 12px; color: var(--accent2); }
+  .signin-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .signin-actions button { padding: 10px 16px; border: 1px solid var(--border); border-radius: 10px; background: none; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+  .signin-actions button.primary { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+  .signin-actions button:disabled { opacity: 0.5; }
   .sheet-scrim {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
     opacity: 0; pointer-events: none; transition: opacity 0.2s;
@@ -582,7 +591,7 @@
 <div class="top-nav">
   <h1>GREYSKULL</h1>
   <div class="nav-right">
-    <div class="sync-status" onclick="promptToken()" title="Set Airtable token">
+    <div class="sync-status" onclick="openSignIn()" title="Sign in to sync">
       <div class="sync-dot" id="syncDot"></div>
       <span id="syncLabel">—</span>
     </div>
@@ -591,6 +600,22 @@
     </button>
   </div>
 </div>
+
+<dialog class="signin" id="signinDialog">
+  <form onsubmit="signIn(event)">
+    <div>
+      <div class="sheet-title">Sign in</div>
+      <div class="sheet-sub">Your Supabase account, to sync this device</div>
+    </div>
+    <input type="email" id="signinEmail" autocomplete="username" placeholder="Email" required>
+    <input type="password" id="signinPassword" autocomplete="current-password" placeholder="Password" required>
+    <div class="signin-error" id="signinError"></div>
+    <div class="signin-actions">
+      <button type="button" onclick="closeSignIn()">Cancel</button>
+      <button type="submit" class="primary" id="signinBtn">Sign in</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- ─── LOG VIEW ─── -->
 <div class="view active" id="viewToday">
@@ -714,19 +739,18 @@
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-// The token lives only in this device's localStorage — tap the sync status to set it
-const AT_TOKEN_KEY = 'greyskull_at_token';
-const AT_BASE  = 'appskyRmm9tzyMPwn';
-const AT_TABLE = 'Workouts';
-const AT_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_TABLE)}`;
+// Supabase: the publishable key is public; row level security only lets a signed-in
+// user read or write. The session lives in this device's localStorage — tap the sync status to sign in.
+const SB_URL = 'https://einebidktyptvgltctfi.supabase.co';
+const SB_KEY = 'sb_publishable_NG8aAuH7XVlWhaYWV_IMYA_ui61GoCA';
+const SB_SESSION_KEY = 'greyskull_sb_session_v1';
 const CACHE_KEY = 'greyskull_v2_cache';
-
-const AT_CALF_TABLE = 'CalfRehab';
-const AT_CALF_URL   = `https://api.airtable.com/v0/${AT_BASE}/${encodeURIComponent(AT_CALF_TABLE)}`;
 const CALF_CACHE_KEY = 'greyskull_calf_v1_cache';
-
-const AT_TARGETS_URL = `https://api.airtable.com/v0/${AT_BASE}/Targets`;
 const TARGETS_CACHE_KEY = 'greyskull_targets_v1_cache';
+// One-time move of the cached Airtable data to Supabase (see migrateFromAirtable)
+const LEGACY_AT_TOKEN_KEY = 'greyskull_at_token';
+const MIGRATED_KEY = 'greyskull_sb_migrated_v1';
+const MIGRATION_SUMMARY_KEY = 'greyskull_sb_migration_summary_v1';
 const SYNC_META_KEY = 'greyskull_sync_v1'; // { lastSync, lastFull } ISO times
 const SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000;   // auto-resyncs closer together than this are skipped
 const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // full refetch catches deletes made on other devices
@@ -823,161 +847,234 @@ const defaultState = () => ({
 });
 let state = defaultState();
 
-// ─── AIRTABLE API ─────────────────────────────────────────────────────────────
-async function atFetch(path = '', opts = {}, baseUrl = AT_URL) {
-  const token = localStorage.getItem(AT_TOKEN_KEY);
-  if (!token) throw new Error('No Airtable token');
-  const res = await fetch(baseUrl + path, { headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, ...opts });
-  // A rejected token is useless; drop it so the status asks for a new one
-  if (res.status === 401) localStorage.removeItem(AT_TOKEN_KEY);
-  if (!res.ok) throw new Error(`AT ${res.status}: ${await res.text()}`);
-  if (res.status === 204) return null;
-  return res.json();
+// ─── SUPABASE AUTH ────────────────────────────────────────────────────────────
+// Email + password sign-in once per device; the access token expires hourly and is
+// refreshed with the stored refresh token. The password itself is never stored.
+function readSession() {
+  try { return JSON.parse(localStorage.getItem(SB_SESSION_KEY)); } catch (e) { return null; }
 }
 
-// since: ISO time — only fetch records modified after it (incremental sync)
-async function fetchRecords(baseUrl, signal, since) {
-  let records = [], offset = null;
-  do {
-    const p = new URLSearchParams({ 'sort[0][field]': 'Timestamp', 'sort[0][direction]': 'desc', pageSize: 100 });
-    if (since) p.set('filterByFormula', `IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE('${since}'))`);
-    if (offset) p.set('offset', offset);
-    const data = await atFetch('?' + p, { signal }, baseUrl);
-    records = records.concat(data.records);
-    offset = data.offset || null;
-  } while (offset);
-  return records;
+function saveSession(d) {
+  localStorage.setItem(SB_SESSION_KEY, JSON.stringify({
+    access_token: d.access_token,
+    refresh_token: d.refresh_token,
+    expires_at: d.expires_at || Math.floor(Date.now() / 1000) + (d.expires_in || 3600),
+    email: d.user?.email || readSession()?.email || '',
+  }));
 }
+
+async function authRequest(grant, body) {
+  const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=${grant}`, {
+    method: 'POST',
+    headers: { apikey: SB_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error_description || data.msg || data.message || `Auth ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+let refreshing = null;
+// Single-flight so parallel requests share one refresh (refresh tokens are single use)
+function refreshSession() {
+  refreshing ??= (async () => {
+    const s = readSession();
+    if (!s) throw new Error('Not signed in');
+    try {
+      saveSession(await authRequest('refresh_token', { refresh_token: s.refresh_token }));
+      return readSession();
+    } catch (e) {
+      // A rejected refresh token means signing in again; a network error just means offline
+      if (e.status >= 400 && e.status < 500) localStorage.removeItem(SB_SESSION_KEY);
+      throw e;
+    }
+  })().finally(() => { refreshing = null; });
+  return refreshing;
+}
+
+async function accessToken() {
+  const s = readSession();
+  if (!s) throw new Error('Not signed in');
+  if (s.expires_at * 1000 - Date.now() > 60 * 1000) return s.access_token;
+  return (await refreshSession()).access_token;
+}
+
+// ─── SUPABASE API ─────────────────────────────────────────────────────────────
+async function sbFetch(path, opts = {}, retried = false) {
+  const token = await accessToken();
+  const res = await fetch(SB_URL + path, {
+    ...opts,
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...opts.headers },
+  });
+  // Token revoked or expired early: refresh once and retry
+  if (res.status === 401 && !retried) {
+    await refreshSession();
+    return sbFetch(path, opts, true);
+  }
+  if (!res.ok) throw new Error(`SB ${res.status}: ${await res.text()}`);
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const FETCH_PAGE = 1000; // Supabase's default max rows per request
+
+// since: ISO time — only fetch rows changed after it (incremental sync)
+async function fetchRecords(table, signal, since) {
+  let rows = [];
+  for (let offset = 0; ; offset += FETCH_PAGE) {
+    const p = new URLSearchParams({ select: '*', order: 'timestamp.desc.nullslast,id', limit: FETCH_PAGE, offset });
+    if (since) p.set('updated_at', `gt.${since}`);
+    const page = await sbFetch(`/rest/v1/${table}?${p}`, { signal });
+    rows = rows.concat(page);
+    if (page.length < FETCH_PAGE) return rows;
+  }
+}
+
+// Column values: blanks become null so typed columns accept them
+function num(v) { return (v !== '' && v != null) ? Number(v) : null; }
+function intOrNull(v) { const n = num(v); return Number.isFinite(n) ? Math.round(n) : null; }
+function numOrNull(v) { const n = num(v); return Number.isFinite(n) ? n : null; }
+function dateOrNull(v) { return /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null; }
+function tsOrNull(v) { const t = v ? Date.parse(v) : NaN; return isNaN(t) ? null : new Date(t).toISOString(); }
+// Postgres returns +00:00 offsets; keep the app's toISOString() form so string sorts hold
+function tsIn(v) { return tsOrNull(v) || ''; }
+function setsOrNull(v) { return Array.isArray(v) && v.length ? v : null; }
+function setsIn(v) { return Array.isArray(v) ? v : []; }
 
 async function fetchAllLogs(signal, since) {
-  return (await fetchRecords(AT_URL, signal, since)).map(normalizeRecord);
+  return (await fetchRecords('workouts', signal, since)).map(normalizeRecord);
 }
 
-function cap(s) { return s[0].toUpperCase() + s.slice(1); }
-
 function normalizeRecord(r) {
-  const f = r.fields;
-  const log = { id: r.id, timestamp: f.Timestamp || '', date: f.Date || '', notes: f.Notes || '' };
+  const log = { id: r.id, timestamp: tsIn(r.timestamp), date: r.date || '', notes: r.notes || '' };
   EXERCISES.forEach(ex => {
-    const k = cap(ex.key);
     log[ex.key] = {
-      variant: f[k + '_Variant'] || '',
-      sets: f[k + '_Sets'] ?? null,
-      reps: f[k + '_Reps'] ?? null,
+      variant: r[ex.key + '_variant'] || '',
+      sets: r[ex.key + '_sets'] ?? null,
+      reps: r[ex.key + '_reps'] ?? null,
     };
   });
   return log;
 }
 
 function buildFields(log) {
-  const f = { Timestamp: log.timestamp, Date: log.date, Notes: log.notes || '' };
+  const f = { timestamp: tsOrNull(log.timestamp), date: dateOrNull(log.date), notes: log.notes || '' };
   EXERCISES.forEach(ex => {
-    const k = cap(ex.key);
-    const d = log[ex.key];
-    f[k + '_Variant'] = d.variant || null;
-    f[k + '_Sets']    = num(d.sets);
-    f[k + '_Reps']    = num(d.reps);
+    const d = log[ex.key] || {};
+    f[ex.key + '_variant'] = d.variant || null;
+    f[ex.key + '_sets']    = intOrNull(d.sets);
+    f[ex.key + '_reps']    = intOrNull(d.reps);
   });
   return f;
 }
 
-function num(v) { return (v !== '' && v != null) ? Number(v) : null; }
-
-
-// ─── TARGETS AIRTABLE API ─────────────────────────────────────────────────────
+// ─── TARGETS ──────────────────────────────────────────────────────────────────
 async function fetchAllTargets(signal) {
-  return (await fetchRecords(AT_TARGETS_URL, signal)).map(r => ({
+  return (await fetchRecords('targets', signal)).map(r => ({
     id: r.id,
-    exercise: r.fields.Exercise || '',
-    sets: r.fields.Sets ?? null,
-    reps: r.fields.Reps ?? null,
-    effectiveDate: r.fields.EffectiveDate || '',
-    timestamp: r.fields.Timestamp || '',
+    exercise: r.exercise || '',
+    sets: r.sets ?? null,
+    reps: r.reps ?? null,
+    effectiveDate: r.effective_date || '',
+    timestamp: tsIn(r.timestamp),
   }));
 }
 
 function buildTargetFields(t) {
-  return { Exercise: t.exercise, Sets: t.sets, Reps: t.reps, EffectiveDate: t.effectiveDate, Timestamp: t.timestamp };
+  return {
+    exercise: t.exercise || null,
+    sets: intOrNull(t.sets),
+    reps: intOrNull(t.reps),
+    effective_date: dateOrNull(t.effectiveDate),
+    timestamp: tsOrNull(t.timestamp),
+  };
 }
 
-// ─── CALF AIRTABLE API ────────────────────────────────────────────────────────
+// ─── CALF REHAB ───────────────────────────────────────────────────────────────
 async function fetchAllCalfLogs(signal, since) {
-  return (await fetchRecords(AT_CALF_URL, signal, since)).map(normalizeCalfRecord);
-}
-
-function parseSetJSON(v) {
-  if (!v) return [];
-  try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch (e) { return []; }
+  return (await fetchRecords('calf_rehab', signal, since)).map(normalizeCalfRecord);
 }
 
 function normalizeCalfRecord(r) {
-  const f = r.fields;
   return {
     id: r.id,
-    timestamp: f.Timestamp || '',
-    date: f.Date || '',
-    dayType: f.DayType || '',
-    assist: f.RightAssist || '',
-    assistAvg: f.RightAssistAvg ?? null,
-    priorActivity: f.PriorActivity || '',
-    soreness: f.Soreness || '',
-    heelRaiseLeft:   parseSetJSON(f.HeelRaiseLeft_Sets),
-    heelRaiseRight:  parseSetJSON(f.HeelRaiseRight_Sets),
-    bigToeLeft:      parseSetJSON(f.BigToeLeft_Sets),
-    bigToeRight:     parseSetJSON(f.BigToeRight_Sets),
-    seatedCalfRaise: parseSetJSON(f.SeatedCalfRaise_Sets),
-    isoHoldLeft:     parseSetJSON(f.IsoHoldLeft_Sets),
-    isoHoldRight:    parseSetJSON(f.IsoHoldRight_Sets),
-    bentKneeLeft:    parseSetJSON(f.BentKneeLeft_Sets),
-    bentKneeRight:   parseSetJSON(f.BentKneeRight_Sets),
+    timestamp: tsIn(r.timestamp),
+    date: r.date || '',
+    dayType: r.day_type || '',
+    assist: r.assist || '',
+    assistAvg: r.assist_avg ?? null,
+    priorActivity: r.prior_activity || '',
+    soreness: r.soreness || '',
+    heelRaiseLeft:   setsIn(r.heel_raise_left),
+    heelRaiseRight:  setsIn(r.heel_raise_right),
+    bigToeLeft:      setsIn(r.big_toe_left),
+    bigToeRight:     setsIn(r.big_toe_right),
+    seatedCalfRaise: setsIn(r.seated_calf_raise),
+    isoHoldLeft:     setsIn(r.iso_hold_left),
+    isoHoldRight:    setsIn(r.iso_hold_right),
+    bentKneeLeft:    setsIn(r.bent_knee_left),
+    bentKneeRight:   setsIn(r.bent_knee_right),
   };
 }
 
 function buildCalfFields(entry) {
   return {
-    Timestamp: entry.timestamp,
-    Date: entry.date,
-    DayType: entry.dayType || null,
-    // Airtable fields keep their legacy Right* names but hold the left-leg assist
-    RightAssist: entry.assist || null,
-    RightAssistAvg: entry.assistAvg ?? null,
-    PriorActivity: entry.priorActivity || '',
-    Soreness: entry.soreness || '',
-    HeelRaiseLeft_Sets:   entry.heelRaiseLeft?.length   ? JSON.stringify(entry.heelRaiseLeft)   : null,
-    HeelRaiseRight_Sets:  entry.heelRaiseRight?.length  ? JSON.stringify(entry.heelRaiseRight)  : null,
-    BigToeLeft_Sets:      entry.bigToeLeft?.length      ? JSON.stringify(entry.bigToeLeft)      : null,
-    BigToeRight_Sets:     entry.bigToeRight?.length     ? JSON.stringify(entry.bigToeRight)     : null,
-    SeatedCalfRaise_Sets: entry.seatedCalfRaise?.length ? JSON.stringify(entry.seatedCalfRaise) : null,
-    IsoHoldLeft_Sets:     entry.isoHoldLeft?.length     ? JSON.stringify(entry.isoHoldLeft)     : null,
-    IsoHoldRight_Sets:    entry.isoHoldRight?.length    ? JSON.stringify(entry.isoHoldRight)    : null,
-    BentKneeLeft_Sets:    entry.bentKneeLeft?.length    ? JSON.stringify(entry.bentKneeLeft)    : null,
-    BentKneeRight_Sets:   entry.bentKneeRight?.length   ? JSON.stringify(entry.bentKneeRight)   : null,
+    timestamp: tsOrNull(entry.timestamp),
+    date: dateOrNull(entry.date),
+    day_type: entry.dayType || null,
+    // The left-leg assist (was Airtable's legacy RightAssist / RightAssistAvg)
+    assist: entry.assist || null,
+    assist_avg: numOrNull(entry.assistAvg),
+    prior_activity: entry.priorActivity || '',
+    soreness: entry.soreness || '',
+    heel_raise_left:   setsOrNull(entry.heelRaiseLeft),
+    heel_raise_right:  setsOrNull(entry.heelRaiseRight),
+    big_toe_left:      setsOrNull(entry.bigToeLeft),
+    big_toe_right:     setsOrNull(entry.bigToeRight),
+    seated_calf_raise: setsOrNull(entry.seatedCalfRaise),
+    iso_hold_left:     setsOrNull(entry.isoHoldLeft),
+    iso_hold_right:    setsOrNull(entry.isoHoldRight),
+    bent_knee_left:    setsOrNull(entry.bentKneeLeft),
+    bent_knee_right:   setsOrNull(entry.bentKneeRight),
   };
 }
 
 // ─── LOCAL-FIRST WRITES ───────────────────────────────────────────────────────
 // Writes land in local state and the cache straight away, flagged `pending` (an edit
-// stamp), and pushPending() sends them to Airtable in batches. Records not yet created
-// in Airtable keep a local- id. Failed pushes retry with backoff and on every sync.
-const PENDING_DELETES_KEY = 'greyskull_pending_deletes_v1'; // [{ table, id }] Airtable ids
-const PUSH_BATCH = 10; // Airtable's per-request record limit
+// stamp), and pushPending() upserts them to Supabase in batches. Ids are UUIDs made on
+// the device, so a record keeps its id from creation. Failed pushes retry with backoff and on every sync.
+const PENDING_DELETES_KEY = 'greyskull_pending_deletes_v1'; // [{ table, id }]
+const PUSH_BATCH = 200;
 const SYNC_TABLES = {
-  logs:    { url: AT_URL,         cacheKey: CACHE_KEY,         fields: buildFields,       get: () => logs,     set: v => { logs = v; } },
-  calf:    { url: AT_CALF_URL,    cacheKey: CALF_CACHE_KEY,    fields: buildCalfFields,   get: () => calfLogs, set: v => { calfLogs = v; } },
-  targets: { url: AT_TARGETS_URL, cacheKey: TARGETS_CACHE_KEY, fields: buildTargetFields, get: () => targets,  set: v => { targets = v; } },
+  logs:    { table: 'workouts',   cacheKey: CACHE_KEY,         fields: buildFields,       get: () => logs,     set: v => { logs = v; } },
+  calf:    { table: 'calf_rehab', cacheKey: CALF_CACHE_KEY,    fields: buildCalfFields,   get: () => calfLogs, set: v => { calfLogs = v; } },
+  targets: { table: 'targets',    cacheKey: TARGETS_CACHE_KEY, fields: buildTargetFields, get: () => targets,  set: v => { targets = v; } },
 };
 
 let pendingDeletes = [];
 try { pendingDeletes = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY)) || []; } catch (e) {}
 let lastPendingStamp = 0;
 let pushGen = 0;      // bumps whenever a push settles, so a fetch started before it is known stale
-const idAliases = {}; // local- id → Airtable id, for buttons rendered before the create landed
 let pushChain = Promise.resolve(true);
 let pushRetryTimer = null, pushRetryDelay = 30 * 1000;
 const PUSH_RETRY_MAX_MS = 30 * 60 * 1000;
 
-function isLocalId(id) { return !id || id.startsWith('local-'); }
-function currentId(id) { return idAliases[id] || id; }
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function formatUuid(b) {
+  const hex = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function newId() {
+  if (window.crypto?.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  return formatUuid(b);
+}
+
 function saveTableCache(name) { localStorage.setItem(SYNC_TABLES[name].cacheKey, JSON.stringify(SYNC_TABLES[name].get())); }
 function savePendingDeletes() { localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(pendingDeletes)); }
 
@@ -985,10 +1082,12 @@ function savePendingDeletes() { localStorage.setItem(PENDING_DELETES_KEY, JSON.s
 function markPending(r) {
   lastPendingStamp = Math.max(Date.now(), lastPendingStamp + 1);
   r.pending = lastPendingStamp;
+  delete r.migrateOnly; // a real edit overwrites, see migrateFromAirtable
 }
 
+// The record may or may not have reached Supabase yet; deleting a missing row is harmless
 function queueDelete(name, id) {
-  if (isLocalId(id)) return; // never reached Airtable
+  if (!UUID_RE.test(id || '')) return;
   pendingDeletes.push({ table: name, id });
   savePendingDeletes();
 }
@@ -1016,29 +1115,30 @@ async function pushOnce() {
   try {
     for (const [name, t] of Object.entries(SYNC_TABLES)) {
       for (const batch of chunks(pendingDeletes.filter(d => d.table === name), PUSH_BATCH)) {
-        await atFetch('?' + batch.map(d => 'records[]=' + encodeURIComponent(d.id)).join('&'), { method: 'DELETE' }, t.url);
+        await sbFetch(`/rest/v1/${t.table}?id=in.(${batch.map(d => d.id).join(',')})`, { method: 'DELETE' });
         pendingDeletes = pendingDeletes.filter(d => !batch.includes(d));
         savePendingDeletes();
       }
-      for (const batch of chunks(t.get().filter(r => r.pending && isLocalId(r.id)), PUSH_BATCH)) {
-        const sent = batch.map(r => ({ id: r.id, pending: r.pending }));
-        const data = await atFetch('', {
-          method: 'POST',
-          body: JSON.stringify({ records: batch.map(r => ({ fields: t.fields(r) })) }),
-        }, t.url);
-        sent.forEach((r, i) => settlePush(name, r, data.records[i].id));
-      }
-      for (const batch of chunks(t.get().filter(r => r.pending && !isLocalId(r.id)), PUSH_BATCH)) {
-        const sent = batch.map(r => ({ id: r.id, pending: r.pending }));
-        await atFetch('', {
-          method: 'PATCH',
-          body: JSON.stringify({ records: batch.map(r => ({ id: r.id, fields: t.fields(r) })) }),
-        }, t.url);
-        sent.forEach(r => settlePush(name, r, r.id));
+      // Edits overwrite the row; migrated rows only fill gaps (see migrateFromAirtable)
+      const pending = t.get().filter(r => r.pending);
+      const groups = [
+        ['merge-duplicates',  pending.filter(r => !r.migrateOnly)],
+        ['ignore-duplicates', pending.filter(r => r.migrateOnly)],
+      ];
+      for (const [resolution, rows] of groups) {
+        for (const batch of chunks(rows, PUSH_BATCH)) {
+          const sent = batch.map(r => ({ id: r.id, pending: r.pending }));
+          await sbFetch(`/rest/v1/${t.table}`, {
+            method: 'POST',
+            headers: { Prefer: `resolution=${resolution},return=minimal` },
+            body: JSON.stringify(batch.map(r => ({ id: r.id, ...t.fields(r) }))),
+          });
+          sent.forEach(r => settlePush(name, r));
+        }
       }
     }
   } catch (e) {
-    console.warn('Airtable push failed, will retry:', e);
+    console.warn('Supabase push failed, will retry:', e);
     setSync('err', offlineLabel());
     pushRetryTimer = setTimeout(pushPending, pushRetryDelay);
     pushRetryDelay = Math.min(pushRetryDelay * 2, PUSH_RETRY_MAX_MS);
@@ -1047,21 +1147,18 @@ async function pushOnce() {
   pushRetryDelay = 30 * 1000;
   setSync('ok', 'Saved ✓');
   // Edits made while this pass was in flight go in the next one
-  return pendingCount() ? pushOnce() : true;
+  if (pendingCount()) return pushOnce();
+  reportMigration();
+  return true;
 }
 
-// Records may have been replaced or deleted locally while the request was in flight,
-// so look them up again by the id that was sent.
-function settlePush(name, sent, airtableId) {
+// The record may have been edited again or deleted locally while the request was in flight
+function settlePush(name, sent) {
   pushGen++;
-  if (sent.id !== airtableId) idAliases[sent.id] = airtableId;
   const cur = SYNC_TABLES[name].get().find(r => r.id === sent.id);
-  if (!cur) {
-    // Deleted locally mid-create: remove the record that was just made
-    if (sent.id !== airtableId) queueDelete(name, airtableId);
-  } else {
-    cur.id = airtableId;
-    if (cur.pending === sent.pending) delete cur.pending;
+  if (cur && cur.pending === sent.pending) {
+    delete cur.pending;
+    delete cur.migrateOnly;
   }
   saveTableCache(name);
 }
@@ -1075,18 +1172,101 @@ function mergeFetched(name, fetched, full) {
   return mergeById(base.filter(r => !skip.has(r.id)), unsent);
 }
 
+// ─── ONE-TIME MOVE FROM AIRTABLE ──────────────────────────────────────────────
+// The device's cache holds every Airtable record, so it is uploaded as-is. Airtable ids
+// (rec…) map to a fixed UUID, so a second device uploading the same record hits the same
+// row. Those uploads only insert missing rows and never overwrite, so a device with an
+// older cache can't undo newer edits; edits that were still unsent do overwrite.
+async function uuidFromString(s) {
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('greyskull:' + s));
+  const b = new Uint8Array(hash).slice(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x50; b[8] = (b[8] & 0x3f) | 0x80;
+  return formatUuid(b);
+}
+
+let migration = null;
+function migrateOnce() {
+  migration ??= migrateFromAirtable().catch(e => { migration = null; console.warn('Migration failed:', e); });
+  return migration;
+}
+
+async function migrateFromAirtable() {
+  if (localStorage.getItem(MIGRATED_KEY)) return;
+  // Re-running after an interruption is safe: converted ids are already UUIDs
+  const convert = async id => UUID_RE.test(id || '') ? id
+    : (id || '').startsWith('rec') ? uuidFromString(id)
+    : newId(); // local- ids never reached Airtable
+  const summary = {};
+  for (const [name, t] of Object.entries(SYNC_TABLES)) {
+    const rows = t.get();
+    for (const r of rows) {
+      r.id = await convert(r.id);
+      if (!r.pending) { markPending(r); r.migrateOnly = true; }
+    }
+    summary[name] = rows.length;
+    saveTableCache(name);
+  }
+  // Deletes queued for Airtable records: the row may still arrive from another device's upload
+  const deletes = [];
+  for (const d of pendingDeletes) if ((d.id || '').startsWith('rec') || UUID_RE.test(d.id || '')) deletes.push({ ...d, id: await convert(d.id) });
+  pendingDeletes = deletes;
+  savePendingDeletes();
+  if (summary.logs || summary.calf || summary.targets) localStorage.setItem(MIGRATION_SUMMARY_KEY, JSON.stringify(summary));
+  localStorage.removeItem(LEGACY_AT_TOKEN_KEY);
+  localStorage.removeItem(SYNC_META_KEY); // next sync is a full one
+  localStorage.setItem(MIGRATED_KEY, new Date().toISOString());
+}
+
+// Once the migrated records have all been sent, say how many
+function reportMigration() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(MIGRATION_SUMMARY_KEY)); } catch (e) {}
+  if (!s) return;
+  localStorage.removeItem(MIGRATION_SUMMARY_KEY);
+  setTimeout(() => alert(`Moved to Supabase ✓\n${s.logs || 0} workout entries · ${s.calf || 0} calf entries · ${s.targets || 0} targets`), 0);
+}
+
 // ─── SYNC STATUS ──────────────────────────────────────────────────────────────
 function offlineLabel() {
-  if (!localStorage.getItem(AT_TOKEN_KEY)) return 'No token · tap to set';
   const unsent = pendingCount();
+  if (!readSession()) return unsent ? `Sign in · ${unsent} unsaved` : 'Sign in · tap here';
   return unsent ? `Offline · ${unsent} unsaved` : 'Offline (cached)';
 }
 
-function promptToken() {
-  const token = prompt('Airtable personal access token (stored on this device only):', '');
-  if (token === null || !token.trim()) return;
-  localStorage.setItem(AT_TOKEN_KEY, token.trim());
-  load(false, true);
+function openSignIn() {
+  const s = readSession();
+  if (s) {
+    if (confirm(`Signed in${s.email ? ' as ' + s.email : ''}.\n\nSign out on this device?`)) {
+      localStorage.removeItem(SB_SESSION_KEY);
+      setSync('err', offlineLabel());
+    }
+    return;
+  }
+  document.getElementById('signinError').textContent = '';
+  document.getElementById('signinDialog').showModal();
+}
+
+function closeSignIn() { document.getElementById('signinDialog').close(); }
+
+async function signIn(e) {
+  e.preventDefault();
+  const btn = document.getElementById('signinBtn');
+  const errEl = document.getElementById('signinError');
+  btn.disabled = true;
+  errEl.textContent = '';
+  try {
+    saveSession(await authRequest('password', {
+      email: document.getElementById('signinEmail').value.trim(),
+      password: document.getElementById('signinPassword').value,
+    }));
+    document.getElementById('signinPassword').value = '';
+    closeSignIn();
+    load(false, true);
+  } catch (err) {
+    errEl.textContent = err.status ? err.message : 'Could not reach Supabase — check your connection';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function setSync(status, label) {
@@ -1118,8 +1298,6 @@ function loadCache() {
   if (calfCached) calfLogs = JSON.parse(calfCached);
   const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
   if (targetsCached) targets = JSON.parse(targetsCached);
-  // Local-only records cached before the outbox existed still need sending
-  Object.values(SYNC_TABLES).forEach(t => t.get().forEach(r => { if (isLocalId(r.id) && !r.pending) markPending(r); }));
   return !!(cached && calfCached && targetsCached);
 }
 
@@ -1137,14 +1315,15 @@ let cacheComplete = null;
 async function load(background = false, force = false) {
   // In-memory state is the cache plus any writes since, so read the cache only once
   if (cacheComplete === null) cacheComplete = loadCache();
+  await migrateOnce();
   const meta = readSyncMeta();
   const now = Date.now();
   if (!force && meta.lastSync && now - Date.parse(meta.lastSync) < SYNC_MIN_INTERVAL_MS) {
     // Skip the fetch, but still send anything unsent (e.g. on coming back online)
     pushPending();
     if (background) return;
-    if (!localStorage.getItem(AT_TOKEN_KEY)) setSync('err', offlineLabel());
-    else if (!pendingCount()) setSync('ok', 'Airtable ✓');
+    if (!readSession()) setSync('err', offlineLabel());
+    else if (!pendingCount()) setSync('ok', 'Synced ✓');
   } else {
     const full = force || !cacheComplete || !meta.lastFull || now - Date.parse(meta.lastFull) >= FULL_SYNC_INTERVAL_MS;
     if (!await sync(meta, full)) return;
@@ -1190,14 +1369,14 @@ async function sync(meta, full) {
       calfLogs = mergeFetched('calf', newCalfLogs, false);
     }
     const unsent = pendingCount();
-    setSync(unsent ? 'err' : 'ok', unsent ? offlineLabel() : 'Airtable ✓');
+    setSync(unsent ? 'err' : 'ok', unsent ? offlineLabel() : 'Synced ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
     localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastSync: startedAt, lastFull: full ? startedAt : meta.lastFull }));
   } catch (e) {
     if (controller.signal.aborted) return false;
-    console.warn('Airtable unavailable, using cache:', e);
+    console.warn('Supabase unavailable, using cache:', e);
     setSync('err', offlineLabel());
   } finally {
     if (loadController === controller) loadController = null;
@@ -1322,7 +1501,7 @@ function upcomingTarget(key, cur = getTarget(key)) {
 
 function saveTarget(key, t, effectiveDate) {
   abortLoad();
-  const row = { id: localId(), exercise: key, sets: t.sets, reps: t.repsPerSet, effectiveDate, timestamp: new Date().toISOString() };
+  const row = { id: newId(), exercise: key, sets: t.sets, reps: t.repsPerSet, effectiveDate, timestamp: new Date().toISOString() };
   markPending(row);
   targets.unshift(row);
   saveTableCache('targets');
@@ -1745,7 +1924,7 @@ async function logExercise(key) {
 
   const now = new Date();
   const log = {
-    id: localId(),
+    id: newId(),
     timestamp: now.toISOString(),
     date: localDateKey(now),
     notes: '',
@@ -1780,7 +1959,6 @@ async function logExercise(key) {
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 async function deleteEntry(key) {
-  key = currentId(key);
   const log = logs.find(l => logKey(l) === key);
   if (!log || !confirm('Delete this entry?')) return;
   abortLoad();
@@ -2856,13 +3034,13 @@ function buildCalfEntry(dateStr) {
   };
 }
 
-// Every set and note change upserts the day's entry. It keeps the day's id (local- until
-// first pushed), so a quick second set updates the same record instead of creating another.
+// Every set and note change upserts the day's entry. It keeps the day's id, so a quick
+// second set updates the same record instead of creating another.
 function saveCalfEntry() {
   const entry = buildCalfEntry(calfDay);
   const existing = calfLogs.find(l => l.date === entry.date);
   entry.timestamp = existing ? existing.timestamp : new Date().toISOString();
-  entry.id = existing ? existing.id : localId();
+  entry.id = existing ? existing.id : newId();
 
   abortLoad();
   markPending(entry);
@@ -2877,7 +3055,6 @@ function saveCalfEntry() {
 }
 async function deleteCalfEntry(id) {
   if (!confirm('Delete this entry?')) return;
-  id = currentId(id);
   abortLoad();
   queueDelete('calf', id);
   calfLogs = calfLogs.filter(l => l.id !== id);
@@ -3185,7 +3362,6 @@ function localDateKey(d) {
 }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 function logKey(l) { return l.id || l.timestamp; }
-function localId() { return 'local-' + (window.crypto?.randomUUID?.() || Date.now()); }
 function fmtDate(ds) {
   const d = new Date(ds + 'T12:00:00');
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });

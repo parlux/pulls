@@ -1,4 +1,4 @@
-const CACHE = 'greyskull-v11';
+const CACHE = 'greyskull-v12';
 const PRECACHE = [
   './',
   'index.html',
@@ -25,8 +25,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  // Airtable: let the app's own cache fallback handle offline
-  if (url.hostname === 'api.airtable.com') return;
+  // Supabase: let the app's own cache fallback handle offline
+  if (url.hostname.endsWith('.supabase.co')) return;
 
   // App shell: network-first so deploys show up immediately
   if (req.mode === 'navigate' || url.origin === location.origin) {
