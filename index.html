@@ -731,7 +731,10 @@ const SYNC_META_KEY = 'greyskull_sync_v1'; // { lastSync, lastFull } ISO times
 const SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000;   // auto-resyncs closer together than this are skipped
 const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // full refetch catches deletes made on other devices
 const SYNC_OVERLAP_MS = 5 * 60 * 1000;          // incremental window starts early to absorb clock skew
-const MAX_SETS = 5, LADDER_RESET_SETS = 3, BUMP_AFTER_DAYS = 7;
+const MAX_SETS = 5, LADDER_RESET_SETS = 3;
+// A bump is offered once the target has held for a week and been hit in enough sessions,
+// so a couple of sessions either side of a long break don't earn one
+const BUMP_NEED = { day: 7, session: 5 };
 
 const CALF_SCHEDULE = ['Off', 'A', 'A', 'B', 'A', 'A', 'B']; // Date.getDay() index, Sun..Sat
 const CALF_DAYTYPE_LABEL = { A: 'A-day', B: 'B-day', Off: 'Off' };
@@ -748,7 +751,7 @@ const ISO_PULL_LEVELS  = ['Heavy', 'Moderate', 'Light', 'Fingertips', 'Balance o
 // Block 2 left heel raise follows the set ladder, stored in Targets; bump offered after a week of A-days
 const CALF_BUMP_KEY = 'heelRaiseLeft';
 const CALF_HEEL_DEFAULT = { sets: 5, repsPerSet: 4 };
-const CALF_BUMP_SESSIONS = 4;
+const CALF_BUMP_NEED = { 'A-day': 4 };
 // Rehab rep cap: past this the heel raise gets harder by lightening the pull, not more reps
 const CALF_HEEL_CAP = { reps: 10, hint: 'Lighten the pull' };
 
@@ -1290,23 +1293,25 @@ function targetSince(key, target) {
   return since;
 }
 
-// Calendar days (inclusive of today) the target has been hit with no missed session,
-// counting back no further than when the stored target took effect. Today counts only once hit.
-function streakDays(key, target) {
+// Calendar days (inclusive of today) the target has been hit with no missed session, and the
+// sessions hit in that run, counting back no further than when the stored target took effect.
+// Days with no log don't break the run. Today counts only once hit.
+function targetStreak(key, target) {
   const today = localDateKey(new Date());
   const since = targetSince(key, target);
   const byDate = {};
   logs.forEach(l => { const e = l[key]; if (e?.sets != null && e?.reps != null) (byDate[l.date] ??= []).push(e); });
   const hit = d => byDate[d].reduce((n, e) => n + (e.reps >= target.repsPerSet ? (e.sets || 1) : 0), 0) >= target.sets;
-  let start = null;
+  let start = null, session = 0;
   for (const d of Object.keys(byDate).sort().reverse()) {
     if (d < since) break;
     if (!hit(d)) { if (d === today) continue; break; }
     start = d;
+    session++;
   }
-  if (!start) return 0;
+  if (!start) return { day: 0, session: 0 };
   const end = byDate[today] && hit(today) ? today : localDateKey(addDays(new Date(), -1));
-  return Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
+  return { day: Math.round((new Date(end) - new Date(start)) / 86400000) + 1, session };
 }
 
 // A bump made after finishing today's target, waiting for tomorrow
@@ -1402,9 +1407,9 @@ function renderCards() {
     if (target) { totalTarget += target.sets; totalDone += Math.min(done, target.sets); }
     const status = target && done >= target.sets ? 'done' : (rest > 0 ? 'rest' : 'ready');
     const pending = upcomingTarget(ex.key);
-    const streak = target ? streakDays(ex.key, target) : 0, cap = exerciseCap(ex.key);
-    const offer = bumpOffer(target, pending, streak, BUMP_AFTER_DAYS, cap);
-    const maxed = maxedHint(target, pending, streak, BUMP_AFTER_DAYS, cap);
+    const streak = target && targetStreak(ex.key, target), cap = exerciseCap(ex.key);
+    const offer = bumpOffer(target, pending, streak, BUMP_NEED, cap);
+    const maxed = maxedHint(target, pending, streak, BUMP_NEED, cap);
     return { ex, done, target, rest, status, pending, offer, maxed };
   });
 
@@ -1641,7 +1646,7 @@ function renderLogSheet() {
 
   renderTargetRow(document.getElementById('sheetTarget'), {
     target, pending: upcomingTarget(key), isDone: target && done >= target.sets,
-    streak: target ? streakDays(key, target) : 0, need: BUMP_AFTER_DAYS, unit: 'day', cap: exerciseCap(key),
+    streak: target && targetStreak(key, target), need: BUMP_NEED, cap: exerciseCap(key),
     bump: dir => `bumpTarget('${key}',${dir})`,
   });
 
@@ -1660,20 +1665,26 @@ function renderLogSheet() {
   ).join('');
 }
 
-// The suggested next target once the current one has held for `need` days (or sessions) with no
-// bump queued, offered whether or not today's sets are done; null otherwise
+// `streak` and `need` are counts keyed by unit (e.g. { day: 7, session: 5 }); the streak has held
+// long enough once every needed count is reached
+function streakMet(streak, need) {
+  return !!streak && Object.entries(need).every(([unit, n]) => streak[unit] >= n);
+}
+
+// The suggested next target once the current one has held for `need` with no bump queued,
+// offered whether or not today's sets are done; null otherwise
 function bumpOffer(target, pending, streak, need, cap) {
-  return target && !pending && streak >= need ? nextStep(target, cap) : null;
+  return target && !pending && streakMet(streak, need) ? nextStep(target, cap) : null;
 }
 
-// The cap's hint once a target maxed at the cap has held for `need` days (or sessions); null otherwise
+// The cap's hint once a target maxed at the cap has held for `need`; null otherwise
 function maxedHint(target, pending, streak, need, cap) {
-  return target && !pending && streak >= need && !nextStep(target, cap) ? cap.hint : null;
+  return target && !pending && streakMet(streak, need) && !nextStep(target, cap) ? cap.hint : null;
 }
 
-// Target −/+ row, or the bump card once the target has held for `need` days (or sessions).
+// Target −/+ row, or the bump card once the target has held for `need`.
 // `bump(dir)` returns the onclick call that steps the target.
-function renderTargetRow(el, { target, pending, isDone, streak, need, unit, cap, bump }) {
+function renderTargetRow(el, { target, pending, isDone, streak, need, cap, bump }) {
   const bumpReady = !!bumpOffer(target, pending, streak, need, cap);
   const maxed = maxedHint(target, pending, streak, need, cap);
   const up = target && nextStep(target, cap);
@@ -1688,7 +1699,8 @@ function renderTargetRow(el, { target, pending, isDone, streak, need, unit, cap,
     ? `${isDone ? '' : `<button onclick="${bump(-1)}" aria-label="Easier target">−</button>`}
        <span class="grow">Maxed at ${fmtTarget(target)} ✓ <b>${h(maxed)}</b></span>`
     : `${isDone ? '' : `<button onclick="${bump(-1)}" aria-label="Easier target"${target ? '' : ' disabled'}>−</button>`}
-       <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? ` · ${unit} ${Math.min(streak + (isDone ? 0 : 1), need)} of ${need}` : ''}</span>
+       <span class="grow">Target <b>${target ? fmtTarget(target) : '—'}</b>${target ? Object.entries(need).map(([unit, n]) =>
+         ` · ${unit} ${Math.min((streak?.[unit] || 0) + (isDone ? 0 : 1), n)} of ${n}`).join('') : ''}</span>
        <button onclick="${bump(1)}" aria-label="Harder target"${target && !up ? ' disabled' : ''}>+</button>`;
 }
 
@@ -2402,9 +2414,9 @@ function calfCardHtml(ex) {
   const ladder = ex.sides.some(s => s.key === CALF_BUMP_KEY) && calfDay === localDateKey(new Date());
   const target = ladder && calfTarget(calfDay);
   const pending = ladder && upcomingTarget(CALF_BUMP_KEY, target);
-  const streak = ladder && calfStreak(target);
-  const offer = ladder && bumpOffer(target, pending, streak, CALF_BUMP_SESSIONS, CALF_HEEL_CAP);
-  const maxed = ladder && maxedHint(target, pending, streak, CALF_BUMP_SESSIONS, CALF_HEEL_CAP);
+  const streak = ladder && { 'A-day': calfStreak(target) };
+  const offer = ladder && bumpOffer(target, pending, streak, CALF_BUMP_NEED, CALF_HEEL_CAP);
+  const maxed = ladder && maxedHint(target, pending, streak, CALF_BUMP_NEED, CALF_HEEL_CAP);
   const next = pending ? ` · ↑ L ${fmtTarget(pending)} next`
     : offer ? ` · <span class="ex-row-up">↑ L ${fmtTarget(offer)}?</span>`
     : maxed ? ` · <span class="ex-row-up">L ${h(maxed.toLowerCase())}?</span>` : '';
@@ -2570,7 +2582,7 @@ function renderCalfSheet() {
     const target = calfTarget(calfDay);
     renderTargetRow(targetEl, {
       target, pending: upcomingTarget(CALF_BUMP_KEY, target), isDone: sets.length >= target.sets,
-      streak: calfStreak(target), need: CALF_BUMP_SESSIONS, unit: 'A-day', cap: CALF_HEEL_CAP,
+      streak: { 'A-day': calfStreak(target) }, need: CALF_BUMP_NEED, cap: CALF_HEEL_CAP,
       bump: dir => `bumpCalfTarget(${dir})`,
     });
   } else targetEl.remove();
