@@ -68,3 +68,11 @@ Push off through the big toe when you walk, skate and ride. More reps than the s
 - CSV export (one row per set) for handing the block's data to a coach for review.
 
 Data should persist between visits (not reset on reload).
+
+## McGill Big 3 — daily check-in
+
+Every day (Sundays included): curl-up, side plank, bird dog. Tracked only as done / not done, with an optional note.
+
+- Today tab: a "McGill Big 3" card below calf rehab — the last seven days as dots (done / missed), a button to mark the selected day done (tap again to undo), a note box once it's done, and the current streak (days in a row; today not yet done doesn't break it).
+- History: a McGill filter; CSV export with one row per done day (Date, Day, Done, Note).
+- Data lives in the Supabase table `checkins` (`id`, `habit`, `date`, `note`, `timestamp`, `updated_at`; create it with `supabase/checkins.sql`). A row with `habit = 'mcgill'` means it was done that day. The id is derived from the habit and date, so two devices ticking off the same day write the same row.

@@ -321,6 +321,7 @@
     border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; margin-right: 6px;
   }
   .hist-kind.calf { color: var(--accent); border-color: var(--accent); }
+  .hist-kind.mcgill { color: var(--green); border-color: var(--green); }
   .today-calf-title { margin-top: 28px; }
 
   /* ─── PROGRESS VIEW ─── */
@@ -456,6 +457,15 @@
   .calf-notes-body { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 14px; }
   .calf-notes-body .variant-pills { padding: 0; flex-wrap: wrap; }
   .calf-notes-body .input-lbl:not(:first-child) { margin-top: 6px; }
+
+  .mcgill-streak { font-family: var(--font-body); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green); }
+  .mcgill-week .week-dot { font-family: var(--font-body); font-size: 12px; font-weight: 700; }
+  .mcgill-week .week-dot.trained { background: var(--green); border-color: var(--green); }
+  .mcgill-btn { padding: 14px; font-size: 20px; border-radius: 12px; }
+  .mcgill-btn.done { background: transparent; color: var(--green); border: 1.5px solid var(--green); }
+  .mcgill-btn.done:hover { background: transparent; }
+  .mcgill-note { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .mcgill-note[hidden] { display: none; }
 
   .calf-sheet { gap: 14px; max-height: 92vh; overflow-y: auto; }
   .seg.calf-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 0; }
@@ -657,6 +667,14 @@
         <textarea class="textarea-input" id="calfSoreness" placeholder="Any soreness this morning?" onchange="renderCalfNotes(); saveCalfEntry()"></textarea>
       </div>
     </details>
+
+    <div class="section-title today-calf-title"><span>MCGILL BIG 3</span><span class="mcgill-streak" id="mcgillStreak"></span></div>
+    <div class="week-strip calf-week mcgill-week" id="mcgillWeekStrip"></div>
+    <button class="card-log-btn mcgill-btn" id="mcgillBtn" onclick="toggleMcgill()"></button>
+    <div class="mcgill-note" id="mcgillNoteWrap" hidden>
+      <span class="input-lbl">Note (optional)</span>
+      <textarea class="textarea-input" id="mcgillNote" placeholder="e.g. back tight, side plank on knees" onchange="saveMcgillNote()"></textarea>
+    </div>
   </div>
 </div>
 
@@ -747,6 +765,7 @@ const SB_SESSION_KEY = 'greyskull_sb_session_v1';
 const CACHE_KEY = 'greyskull_v2_cache';
 const CALF_CACHE_KEY = 'greyskull_calf_v1_cache';
 const TARGETS_CACHE_KEY = 'greyskull_targets_v1_cache';
+const CHECKINS_CACHE_KEY = 'greyskull_checkins_v1_cache';
 // One-time move of the cached Airtable data to Supabase (see migrateFromAirtable)
 const LEGACY_AT_TOKEN_KEY = 'greyskull_at_token';
 const MIGRATED_KEY = 'greyskull_sb_migrated_v1';
@@ -826,9 +845,12 @@ let charts = {};
 let chartRange = '1m';
 let progressEx = 'chinup';
 const CALF_PROGRESS_PILL = { key: 'calf', label: 'Calf hold', color: '#5b8def' };
-let historyFilter = 'all'; // 'all' | 'workouts' | 'calf'
+let historyFilter = 'all'; // 'all' | 'workouts' | 'calf' | 'mcgill'
 let calfLogs = [];
 let targets = []; // { id, exercise, sets, reps, effectiveDate, timestamp }, newest first
+let checkins = []; // { id, habit, date, note, timestamp }, newest first; a row means done that day
+let mcgillDay = '';      // date shown on the McGill card
+let mcgillDaySetOn = ''; // real date when mcgillDay was chosen; a new day resets it to today
 let calfCharts = {};
 let calfDay = '';        // date shown on the Calf tab
 let calfDaySetOn = '';   // real date when calfDay was chosen; a new day resets the tab to today
@@ -1043,6 +1065,27 @@ function buildCalfFields(entry) {
   };
 }
 
+// ─── CHECK-INS ────────────────────────────────────────────────────────────────
+// Done / not done habits (the McGill Big 3): one row per habit per day it was done
+async function fetchAllCheckins(signal, since) {
+  return (await fetchRecords('checkins', signal, since)).map(r => ({
+    id: r.id,
+    habit: r.habit || '',
+    date: r.date || '',
+    note: r.note || '',
+    timestamp: tsIn(r.timestamp),
+  }));
+}
+
+function buildCheckinFields(c) {
+  return {
+    habit: c.habit || null,
+    date: dateOrNull(c.date),
+    note: c.note || '',
+    timestamp: tsOrNull(c.timestamp),
+  };
+}
+
 // ─── LOCAL-FIRST WRITES ───────────────────────────────────────────────────────
 // Writes land in local state and the cache straight away, flagged `pending` (an edit
 // stamp), and pushPending() upserts them to Supabase in batches. Ids are UUIDs made on
@@ -1053,6 +1096,7 @@ const SYNC_TABLES = {
   logs:    { table: 'workouts',   cacheKey: CACHE_KEY,         fields: buildFields,       get: () => logs,     set: v => { logs = v; } },
   calf:    { table: 'calf_rehab', cacheKey: CALF_CACHE_KEY,    fields: buildCalfFields,   get: () => calfLogs, set: v => { calfLogs = v; } },
   targets: { table: 'targets',    cacheKey: TARGETS_CACHE_KEY, fields: buildTargetFields, get: () => targets,  set: v => { targets = v; } },
+  checkins: { table: 'checkins', cacheKey: CHECKINS_CACHE_KEY, fields: buildCheckinFields, get: () => checkins, set: v => { checkins = v; } },
 };
 
 let pendingDeletes = [];
@@ -1286,7 +1330,7 @@ function readSyncMeta() {
   try { return JSON.parse(localStorage.getItem(SYNC_META_KEY)) || {}; } catch (e) { return {}; }
 }
 
-// Returns true when all three tables were cached
+// Returns true when every table was cached
 function loadCache() {
   const cached = localStorage.getItem(CACHE_KEY);
   if (cached) {
@@ -1298,7 +1342,9 @@ function loadCache() {
   if (calfCached) calfLogs = JSON.parse(calfCached);
   const targetsCached = localStorage.getItem(TARGETS_CACHE_KEY);
   if (targetsCached) targets = JSON.parse(targetsCached);
-  return !!(cached && calfCached && targetsCached);
+  const checkinsCached = localStorage.getItem(CHECKINS_CACHE_KEY);
+  if (checkinsCached) checkins = JSON.parse(checkinsCached);
+  return !!(cached && calfCached && targetsCached && checkinsCached);
 }
 
 // Updated records replace their cached copies; result stays newest first
@@ -1331,7 +1377,7 @@ async function load(background = false, force = false) {
   renderAll(background);
 }
 
-// full: refetch all three tables; otherwise only records changed since the last sync.
+// full: refetch every table; otherwise only records changed since the last sync.
 // Returns false if a write or newer load aborted it.
 async function sync(meta, full) {
   if (loadController) loadController.abort();
@@ -1345,10 +1391,11 @@ async function sync(meta, full) {
   const pushGenAtFetch = pushGen;
   try {
     if (full) {
-      const [newLogs, newCalfLogs, newTargets] = await Promise.all([
+      const [newLogs, newCalfLogs, newTargets, newCheckins] = await Promise.all([
         fetchAllLogs(controller.signal),
         fetchAllCalfLogs(controller.signal),
         fetchAllTargets(controller.signal),
+        fetchAllCheckins(controller.signal),
       ]);
       if (controller.signal.aborted) return false;
       // A push that landed mid-fetch made records the fetch can't have seen, so merge instead
@@ -1356,23 +1403,27 @@ async function sync(meta, full) {
       logs = mergeFetched('logs', newLogs, full);
       calfLogs = mergeFetched('calf', newCalfLogs, full);
       targets = mergeFetched('targets', newTargets, full);
+      checkins = mergeFetched('checkins', newCheckins, full);
       cacheComplete = true;
     } else {
       // Seconds precision keeps the formula's date string simple
       const since = new Date(Date.parse(meta.lastSync) - SYNC_OVERLAP_MS).toISOString().slice(0, 19) + 'Z';
-      const [newLogs, newCalfLogs] = await Promise.all([
+      const [newLogs, newCalfLogs, newCheckins] = await Promise.all([
         fetchAllLogs(controller.signal, since),
         fetchAllCalfLogs(controller.signal, since),
+        fetchAllCheckins(controller.signal, since),
       ]);
       if (controller.signal.aborted) return false;
       logs = mergeFetched('logs', newLogs, false);
       calfLogs = mergeFetched('calf', newCalfLogs, false);
+      checkins = mergeFetched('checkins', newCheckins, false);
     }
     const unsent = pendingCount();
     setSync(unsent ? 'err' : 'ok', unsent ? offlineLabel() : 'Synced ✓');
     localStorage.setItem(CACHE_KEY, JSON.stringify(logs));
     localStorage.setItem(CALF_CACHE_KEY, JSON.stringify(calfLogs));
     localStorage.setItem(TARGETS_CACHE_KEY, JSON.stringify(targets));
+    localStorage.setItem(CHECKINS_CACHE_KEY, JSON.stringify(checkins));
     localStorage.setItem(SYNC_META_KEY, JSON.stringify({ lastSync: startedAt, lastFull: full ? startedAt : meta.lastFull }));
   } catch (e) {
     if (controller.signal.aborted) return false;
@@ -1395,6 +1446,7 @@ function renderAll(background) {
   // A background refresh keeps unsaved notes unless the day has rolled over
   if (!background || calfDaySetOn !== localDateKey(new Date())) renderCalfForm();
   renderCalfWeek();
+  renderMcgill(!background);
   renderHistory();
   if (document.getElementById('viewProgress').classList.contains('active')) renderProgress();
 
@@ -1971,14 +2023,14 @@ async function deleteEntry(key) {
 }
 
 // ─── HISTORY RENDER ───────────────────────────────────────────────────────────
-const HISTORY_FILTERS = [['all', 'All'], ['workouts', 'Workouts'], ['calf', 'Calf']];
+const HISTORY_FILTERS = [['all', 'All'], ['workouts', 'Workouts'], ['calf', 'Calf'], ['mcgill', 'McGill']];
 
 function setHistoryFilter(f) {
   historyFilter = f;
   renderHistory();
 }
 
-// Workouts and calf sessions in one list, newest day first (workouts before calf within a day)
+// Workouts, calf sessions and McGill days in one list, newest day first (in that order within a day)
 function renderHistory() {
   document.getElementById('historyFilter').innerHTML = HISTORY_FILTERS.map(([key, label]) =>
     `<button class="pill${key === historyFilter ? ' active' : ''}" onclick="setHistoryFilter('${key}')">${label}</button>`).join('');
@@ -1986,14 +2038,16 @@ function renderHistory() {
     all: `<button class="export-btn" onclick="exportCSV()">Workouts CSV</button><button class="export-btn" onclick="exportCalfCSV()">Calf CSV</button>`,
     workouts: `<button class="export-btn" onclick="exportCSV()">Export CSV</button>`,
     calf: `<button class="export-btn" onclick="exportCalfCSV()">Export CSV</button>`,
+    mcgill: `<button class="export-btn" onclick="exportMcgillCSV()">Export CSV</button>`,
   }[historyFilter];
 
   const items = [
-    ...(historyFilter !== 'calf' ? workoutHistoryItems().map(x => ({ ...x, order: 0 })) : []),
-    ...(historyFilter !== 'workouts' ? calfHistoryItems().map(x => ({ ...x, order: 1 })) : []),
+    ...(['all', 'workouts'].includes(historyFilter) ? workoutHistoryItems().map(x => ({ ...x, order: 0 })) : []),
+    ...(['all', 'calf'].includes(historyFilter) ? calfHistoryItems().map(x => ({ ...x, order: 1 })) : []),
+    ...(['all', 'mcgill'].includes(historyFilter) ? mcgillHistoryItems().map(x => ({ ...x, order: 2 })) : []),
   ].sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order);
 
-  const empty = { all: 'NO LOGS YET', workouts: 'NO WORKOUTS YET', calf: 'NO CALF LOGS YET' }[historyFilter];
+  const empty = { all: 'NO LOGS YET', workouts: 'NO WORKOUTS YET', calf: 'NO CALF LOGS YET', mcgill: 'NO MCGILL DAYS YET' }[historyFilter];
   document.getElementById('historyList').innerHTML = items.length
     ? items.map(x => x.html).join('')
     : `<div class="empty"><strong>${empty}</strong>Log your first set on the Today tab.</div>`;
@@ -2002,7 +2056,7 @@ function renderHistory() {
 function histHead(date, kind) {
   return `<div class="hist-head">
       <span class="hist-date">${fmtDate(date)}</span>
-      <span class="hist-dow"><span class="hist-kind${kind === 'Calf' ? ' calf' : ''}">${kind}</span>${fmtDow(date)}</span>
+      <span class="hist-dow"><span class="hist-kind${kind === 'Calf' ? ' calf' : kind === 'McGill' ? ' mcgill' : ''}">${kind}</span>${fmtDow(date)}</span>
     </div>`;
 }
 
@@ -3258,6 +3312,136 @@ function calfHistoryItems() {
   });
 }
 
+// ─── MCGILL BIG 3 ─────────────────────────────────────────────────────────────
+// Every day, just done or not (plus an optional note). The row id comes from the habit and
+// date, so two devices ticking off the same day write the same row rather than two.
+const MCGILL = 'mcgill';
+
+const mcgillCheckin = ds => checkins.find(c => c.habit === MCGILL && c.date === ds);
+const mcgillDates = () => new Set(checkins.filter(c => c.habit === MCGILL).map(c => c.date));
+
+// Days in a row up to today; today not done yet doesn't break it
+function mcgillStreak(done) {
+  let d = new Date();
+  if (!done.has(localDateKey(d))) d = addDays(d, -1);
+  let n = 0;
+  while (done.has(localDateKey(d))) { n++; d = addDays(d, -1); }
+  return n;
+}
+
+function setMcgillDay(ds) {
+  if (ds > localDateKey(new Date())) return;
+  mcgillDay = ds;
+  mcgillDaySetOn = localDateKey(new Date());
+  renderMcgill();
+}
+
+// resetNote: refill the note box from the saved note (false keeps what's being typed)
+function renderMcgill(resetNote = true) {
+  const todayKey = localDateKey(new Date());
+  if (mcgillDaySetOn !== todayKey) {
+    mcgillDay = mcgillDaySetOn = todayKey;
+    resetNote = true;
+  }
+  const done = mcgillDates();
+
+  const streak = mcgillStreak(done);
+  document.getElementById('mcgillStreak').textContent = streak ? `${streak}-day streak` : '';
+
+  // The last seven days, today on the right
+  const strip = document.getElementById('mcgillWeekStrip');
+  strip.innerHTML = '';
+  for (let i = 6; i >= 0; i--) {
+    const d = addDays(new Date(todayKey + 'T12:00:00'), -i);
+    const ds = localDateKey(d);
+    const isDone = done.has(ds);
+    const wrap = document.createElement('button');
+    wrap.className = 'week-day calf-week-day';
+    wrap.onclick = () => setMcgillDay(ds);
+    wrap.setAttribute('aria-label', `${fmtDow(ds)} ${fmtDate(ds)}, ${isDone ? 'done' : 'not done'}`);
+    const dot = document.createElement('div');
+    dot.className = 'week-dot' +
+      (isDone ? ' trained' : ds < todayKey ? ' missed' : '') +
+      (ds === mcgillDay ? ' selected' : '');
+    dot.textContent = isDone ? '✓' : d.getDate();
+    const lbl = document.createElement('div');
+    lbl.className = 'week-dot-lbl';
+    lbl.textContent = ds === todayKey ? 'Today' : d.toLocaleDateString('en-AU', { weekday: 'short' });
+    wrap.appendChild(dot); wrap.appendChild(lbl); strip.appendChild(wrap);
+  }
+
+  const entry = mcgillCheckin(mcgillDay);
+  const dayName = mcgillDay === todayKey ? 'TODAY' : fmtDow(mcgillDay).toUpperCase();
+  const btn = document.getElementById('mcgillBtn');
+  btn.classList.toggle('done', !!entry);
+  btn.textContent = entry ? `✓ DONE ${dayName}` : `MARK ${dayName} DONE`;
+  btn.setAttribute('aria-pressed', entry ? 'true' : 'false');
+  document.getElementById('mcgillNoteWrap').hidden = !entry;
+  if (resetNote) document.getElementById('mcgillNote').value = entry?.note || '';
+}
+
+async function toggleMcgill() {
+  const ds = mcgillDay;
+  const entry = mcgillCheckin(ds);
+  if (entry) {
+    if (entry.note && !confirm('Mark as not done? This also removes the note.')) return;
+    abortLoad();
+    queueDelete('checkins', entry.id);
+    checkins = checkins.filter(c => c !== entry);
+  } else {
+    const id = await uuidFromString(`checkin:${MCGILL}:${ds}`);
+    abortLoad();
+    // Undone then redone before the delete was sent: the upsert replaces the row anyway
+    pendingDeletes = pendingDeletes.filter(d => !(d.table === 'checkins' && d.id === id));
+    savePendingDeletes();
+    const c = { id, habit: MCGILL, date: ds, note: '', timestamp: new Date().toISOString() };
+    markPending(c);
+    checkins = [c, ...checkins.filter(x => x.id !== id)];
+  }
+  saveTableCache('checkins');
+  pushPending();
+  renderMcgill();
+  renderHistory();
+}
+
+function saveMcgillNote() {
+  const entry = mcgillCheckin(mcgillDay);
+  if (!entry) return;
+  const note = document.getElementById('mcgillNote').value.trim();
+  if (note === entry.note) return;
+  abortLoad();
+  entry.note = note;
+  markPending(entry);
+  saveTableCache('checkins');
+  pushPending();
+  renderHistory();
+}
+
+function deleteCheckin(id) {
+  if (!confirm('Delete this entry?')) return;
+  abortLoad();
+  queueDelete('checkins', id);
+  checkins = checkins.filter(c => c.id !== id);
+  saveTableCache('checkins');
+  pushPending();
+  renderMcgill();
+  renderHistory();
+}
+
+function mcgillHistoryItems() {
+  return checkins.filter(c => c.habit === MCGILL).slice(0, 120).map(c => ({ date: c.date, html: `
+    <div class="hist-item">
+      ${histHead(c.date, 'McGill')}
+      ${c.note ? `<div class="hist-calf-row"><span>${h(c.note)}</span></div>` : ''}
+      <div class="hist-records">
+        <div class="hist-record">
+          <span>Big 3 done</span>
+          <button class="hist-del" onclick="deleteCheckin('${esc(c.id)}')" title="Delete">×</button>
+        </div>
+      </div>
+    </div>` }));
+}
+
 // ─── EXPORT ───────────────────────────────────────────────────────────────────
 function csvField(v) {
   const s = String(v ?? '');
@@ -3294,6 +3478,22 @@ function exportCSV() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `greyskull-export-${localDateKey(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportMcgillCSV() {
+  const rows = [['Date', 'Day', 'Done', 'Note']];
+  checkins.filter(c => c.habit === MCGILL).slice().sort((a, b) => b.date.localeCompare(a.date))
+    .forEach(c => rows.push([c.date, fmtDow(c.date), 'Yes', c.note || '']));
+  const csv = rows.map(row => row.map(csvField).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mcgill-export-${localDateKey(new Date())}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
