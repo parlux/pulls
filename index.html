@@ -1395,6 +1395,7 @@ async function sync(meta, full) {
   setSync('syncing', 'Syncing...');
   const startedAt = new Date().toISOString();
   const pushGenAtFetch = pushGen;
+  let fetchedTargets = false;
   try {
     if (full) {
       const [newLogs, newCalfLogs, newTargets, newCheckins] = await Promise.all([
@@ -1409,6 +1410,7 @@ async function sync(meta, full) {
       logs = mergeFetched('logs', newLogs, full);
       calfLogs = mergeFetched('calf', newCalfLogs, full);
       targets = mergeFetched('targets', newTargets, full);
+      fetchedTargets = true;
       checkins = mergeFetched('checkins', newCheckins, full);
       cacheComplete = true;
     } else {
@@ -1438,6 +1440,7 @@ async function sync(meta, full) {
   } finally {
     if (loadController === controller) loadController = null;
   }
+  if (fetchedTargets) seedMissingTargets();
   return true;
 }
 
@@ -1583,23 +1586,32 @@ async function bumpTarget(key, dir) {
   renderCards();
 }
 
+// Fallback when no target is stored: the last session's reps, at the most sets any past day
+// reached at those reps, so one incomplete day can't lower it
 function lastSessionTarget(key) {
   const today = localDateKey(new Date());
-  const pastDates = [...new Set(
-    logs
-      .filter(l => l.date !== today && l[key]?.sets != null && l[key]?.reps != null)
-      .map(l => l.date)
-  )].sort().reverse();
+  const past = logs.filter(l => l.date !== today && l[key]?.sets != null && l[key]?.reps != null);
+  if (!past.length) return null;
 
-  if (!pastDates.length) return null;
-
-  const lastDate = pastDates[0];
-  const dayLogs = logs.filter(l => l.date === lastDate && l[key]?.sets != null && l[key]?.reps != null);
-  const totalSets = dayLogs.reduce((sum, l) => sum + (l[key].sets || 1), 0);
-  const repsPerSet = dayLogs[0]?.[key]?.reps;
+  const lastDate = past.reduce((d, l) => l.date > d ? l.date : d, '');
+  const repsPerSet = past.find(l => l.date === lastDate)[key].reps;
   if (!repsPerSet) return null;
 
-  return { sets: totalSets, repsPerSet };
+  const setsByDate = {};
+  past.forEach(l => { if (l[key].reps >= repsPerSet) setsByDate[l.date] = (setsByDate[l.date] || 0) + (l[key].sets || 1); });
+  const sets = Math.max(0, ...Object.values(setsByDate));
+  return sets ? { sets, repsPerSet } : null;
+}
+
+// Store the fallback target for exercises that have none, so it only moves when bumped.
+// Run only after a full fetch so targets made on other devices are already known.
+function seedMissingTargets() {
+  const today = localDateKey(new Date());
+  EXERCISES.forEach(({ key }) => {
+    if (storedTarget(key, today)) return;
+    const t = lastSessionTarget(key);
+    if (t) saveTarget(key, t, today);
+  });
 }
 
 // ─── LOG VIEW ─────────────────────────────────────────────────────────────────
