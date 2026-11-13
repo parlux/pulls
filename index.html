@@ -1536,17 +1536,19 @@ function targetSince(key, target) {
 
 // Calendar days (inclusive of today) the target has been hit with no missed session, and the
 // sessions hit in that run, counting back no further than when the stored target took effect.
-// Days with no log don't break the run. Today counts only once hit.
+// Only a set short of the target reps breaks the run; days with no log, or with fewer sets all at
+// target reps, are neutral (they neither break nor count). Today counts only once hit.
 function targetStreak(key, target) {
   const today = localDateKey(new Date());
   const since = targetSince(key, target);
   const byDate = {};
   logs.forEach(l => { const e = l[key]; if (e?.sets != null && e?.reps != null) (byDate[l.date] ??= []).push(e); });
   const hit = d => byDate[d].reduce((n, e) => n + (e.reps >= target.repsPerSet ? (e.sets || 1) : 0), 0) >= target.sets;
+  const missedReps = d => byDate[d].some(e => e.reps < target.repsPerSet);
   let start = null, session = 0;
   for (const d of Object.keys(byDate).sort().reverse()) {
     if (d < since) break;
-    if (!hit(d)) { if (d === today) continue; break; }
+    if (!hit(d)) { if (d === today || !missedReps(d)) continue; break; }
     start = d;
     session++;
   }
