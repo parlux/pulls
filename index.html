@@ -1520,17 +1520,18 @@ function getTarget(key) {
 }
 
 // Start of the current target: the earliest of the latest run of rows with the same value,
-// skipping rows overridden by a newer row before they took effect (e.g. an undone bump)
+// skipping rows overridden by a newer row before they took effect (e.g. an undone bump).
+// '' when no earlier, different target exists: a first (e.g. seeded) row isn't a change.
 function targetSince(key, target) {
   const today = localDateKey(new Date());
   let since = '', minEff = '\uffff';
   for (const t of targets) {
     if (t.exercise !== key || t.effectiveDate > today || !t.sets || !t.reps || t.effectiveDate >= minEff) continue;
     minEff = t.effectiveDate;
-    if (t.sets !== target.sets || t.reps !== target.repsPerSet) break;
+    if (t.sets !== target.sets || t.reps !== target.repsPerSet) return since;
     since = t.effectiveDate;
   }
-  return since;
+  return '';
 }
 
 // Calendar days (inclusive of today) the target has been hit with no missed session, and the
