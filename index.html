@@ -297,6 +297,12 @@
   .hist-ex-name { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
   .hist-ex-vol { font-weight: 600; }
   .hist-ex-var { font-size: 11px; color: var(--muted); text-align: right; }
+  button.hist-ex-var {
+    justify-self: end; border: 1px solid var(--border); background: var(--surface2); border-radius: 999px;
+    padding: 2px 9px; font-family: var(--font-body); font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  button.hist-ex-var::after { content: ' ▾'; font-size: 9px; }
+  button.hist-ex-var:hover, button.hist-ex-var:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
   .hist-records {
     margin-top: 8px; border-top: 1px solid var(--border);
     padding-top: 8px; display: flex; flex-direction: column; gap: 4px;
@@ -706,6 +712,19 @@
     </div>
     <div class="quick-reps" id="sheetQuick"></div>
     <button class="card-log-btn" id="sheetLogBtn" onclick="logExercise(sheetKey)">LOG SET</button>
+  </div>
+</div>
+
+<!-- VARIANT EDIT SHEET: change the version of an exercise already logged on a day -->
+<div id="variantSheetWrap">
+  <div class="sheet-scrim" onclick="closeVariantSheet()"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="variantSheetTitle">
+    <div class="sheet-grab"></div>
+    <div>
+      <div class="sheet-title" id="variantSheetTitle"></div>
+      <div class="sheet-sub" id="variantSheetSub"></div>
+    </div>
+    <div class="variant-pills" id="variantSheetPills" style="flex-wrap: wrap"></div>
   </div>
 </div>
 
@@ -1972,6 +1991,7 @@ function setVariant(key, variant) {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && sheetKey) closeLogSheet();
+  if (e.key === 'Escape' && variantEdit) closeVariantSheet();
   if (holdTimer) {
     if (e.key === 'Escape') closeHoldTimer();
     else if ((e.key === ' ' || e.key === 'Enter') && holdTimer.phase === 'hold') { e.preventDefault(); stopHoldTimer(); }
@@ -2028,6 +2048,53 @@ async function logExercise(key) {
     btn.style.background = '';
     if (isPR) celebrateCard(key, win);
   }, isPR ? 1100 : 700);
+}
+
+// ─── CHANGE VERSION ───────────────────────────────────────────────────────────
+// Re-labels every set of one exercise on one day, for when the wrong version was logged
+let variantEdit = null; // { date, key }
+
+function variantEditLogs(date, key) {
+  return logs.filter(l => l.date === date && (l[key].sets != null || l[key].variant));
+}
+
+function openVariantSheet(date, key) {
+  const ex = EXERCISES.find(e => e.key === key);
+  const recs = variantEditLogs(date, key);
+  if (!ex || !recs.length) return;
+  variantEdit = { date, key };
+  const sets = recs.reduce((n, l) => n + (l[key].sets || 0), 0);
+  const current = recs.find(l => l[key].variant)?.[key].variant || '';
+  const mixed = new Set(recs.map(l => l[key].variant)).size > 1;
+  document.getElementById('variantSheetTitle').textContent = ex.label;
+  document.getElementById('variantSheetSub').textContent =
+    `${fmtDow(date)} ${fmtDate(date)} · change the version for ${sets === 1 ? 'this set' : `all ${sets} sets`}`;
+  document.getElementById('variantSheetPills').innerHTML = ex.variants.map(v =>
+    `<button class="pill${!mixed && current === v ? ' active' : ''}" onclick="applyVariantEdit('${esc(v)}')">${h(v)}</button>`
+  ).join('');
+  document.getElementById('variantSheetWrap').classList.add('sheet-open');
+}
+
+function closeVariantSheet() {
+  variantEdit = null;
+  document.getElementById('variantSheetWrap').classList.remove('sheet-open');
+}
+
+function applyVariantEdit(variant) {
+  if (!variantEdit) return;
+  const { date, key } = variantEdit;
+  closeVariantSheet();
+  const recs = variantEditLogs(date, key).filter(l => l[key].variant !== variant);
+  if (!recs.length) return;
+  abortLoad();
+  recs.forEach(l => { l[key].variant = variant; markPending(l); });
+  // Fixing the latest day also fixes what the next set pre-fills with
+  if (logs.find(l => l[key].variant)?.date === date) state[key].variant = variant;
+  saveTableCache('logs');
+  pushPending();
+  renderCards();
+  renderHistory();
+  if (document.getElementById('viewProgress').classList.contains('active')) renderProgress();
 }
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
@@ -2117,7 +2184,7 @@ function workoutHistoryItems() {
       return `<div class="hist-ex">
         <span class="hist-ex-name">${ex.label}</span>
         <span class="hist-ex-vol">${vol}</span>
-        <span class="hist-ex-var">${h(g.variant)}</span>
+        <button class="hist-ex-var" onclick="openVariantSheet('${date}','${ex.key}')" title="Change version">${h(g.variant || 'Set version')}</button>
       </div>`;
     }).filter(Boolean).join('');
 
