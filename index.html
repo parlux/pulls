@@ -820,9 +820,9 @@ const EXERCISES = [
   { key: 'chinup', label: 'Chin Ups',  color: '#5b8def', variants: ['Band-Assisted', 'Negative', 'Full', 'Weighted'] },
   { key: 'pushup', label: 'Push Ups',  color: '#e8a020', variants: ['Incline', 'Knee', 'Full', 'Decline', 'Weighted'] },
   { key: 'deadbug', label: 'Deadbugs', color: '#3ab06a', variants: ['Bent-Knee', 'Straight-Leg', 'Iso Hold', 'Weighted'] },
-  { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['No Jump', 'No Pushup', 'Full'] },
-  { key: 'splitsquat', label: 'Split Squats', color: '#9b6ef0', variants: ['Bodyweight', 'Rear-Foot Elevated', 'Weighted'] },
-  { key: 'stepup', label: 'Step Ups',  color: '#2fb5b5', variants: ['Milk Crate', 'Bench', 'Weighted'] },
+  { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['Step', 'No Jump', 'No Pushup', 'Full'] },
+  { key: 'splitsquat', label: 'Split Squats', color: '#9b6ef0', variants: ['Assisted', 'Bodyweight', 'Rear-Foot Elevated', 'Weighted'] },
+  { key: 'stepup', label: 'Step Ups',  color: '#2fb5b5', variants: ['Assisted', 'Milk Crate', 'Bench', 'Weighted'] },
 ];
 
 // ─── ATHLETICISM RANK ─────────────────────────────────────────────────────────
@@ -832,9 +832,9 @@ const RANK_STANDARDS = {
   chinup:     { 'Band-Assisted': [0, 20, 15], 'Negative': [15, 35, 10], 'Full': [30, 85, 20], 'Weighted': [80, 100, 10] },
   pushup:     { 'Knee': [0, 20, 30], 'Incline': [10, 30, 30], 'Full': [25, 75, 50], 'Decline': [55, 85, 40], 'Weighted': [75, 100, 25] },
   deadbug:    { 'Bent-Knee': [0, 30, 30], 'Straight-Leg': [20, 55, 30], 'Iso Hold': [30, 70, 60], 'Weighted': [60, 100, 30] },
-  burpee:     { 'No Jump': [0, 25, 20], 'No Pushup': [15, 40, 25], 'Full': [30, 100, 30] },
-  splitsquat: { 'Bodyweight': [0, 40, 25], 'Rear-Foot Elevated': [30, 75, 20], 'Weighted': [65, 100, 15] },
-  stepup:     { 'Milk Crate': [0, 30, 30], 'Bench': [25, 65, 25], 'Weighted': [60, 100, 20] },
+  burpee:     { 'Step': [0, 15, 20], 'No Jump': [0, 25, 20], 'No Pushup': [15, 40, 25], 'Full': [30, 100, 30] },
+  splitsquat: { 'Assisted': [0, 15, 25], 'Bodyweight': [0, 40, 25], 'Rear-Foot Elevated': [30, 75, 20], 'Weighted': [65, 100, 15] },
+  stepup:     { 'Assisted': [0, 15, 30], 'Milk Crate': [0, 30, 30], 'Bench': [25, 65, 25], 'Weighted': [60, 100, 20] },
 };
 const RANK_TIERS = [
   { name: 'Untrained',    min: 0,  color: '#6b6870' },
