@@ -799,7 +799,7 @@ const SYNC_META_KEY = 'greyskull_sync_v1'; // { lastSync, lastFull } ISO times
 const SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000;   // auto-resyncs closer together than this are skipped
 const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // full refetch catches deletes made on other devices
 const SYNC_OVERLAP_MS = 5 * 60 * 1000;          // incremental window starts early to absorb clock skew
-const MAX_SETS = 5, LADDER_RESET_SETS = 3;
+const LADDER_RESET_SETS = 3;
 // A bump is offered once the target has held for a week and been hit in enough sessions,
 // so a couple of sessions either side of a long break don't earn one
 const BUMP_NEED = { day: 7, session: 5 };
@@ -1495,15 +1495,20 @@ function showView(name) {
 }
 
 // ─── TARGET ───────────────────────────────────────────────────────────────────
-// Set ladder: add a set up to MAX_SETS, then drop to LADDER_RESET_SETS with more reps.
+// Set ladder: add a set up to maxSets(reps), then drop to LADDER_RESET_SETS with more reps.
 // The rep step grows with reps so a bump stays a similar jump. Targets only move when the user bumps them.
 function repStep(reps) {
   return reps < 10 ? 1 : reps < 20 ? 2 : reps < 30 ? 3 : 5;
 }
 
-// cap: { reps, hint } or null. Reps stop at cap.reps; null once the target is maxed at MAX_SETS × cap.
+// Longer sets allow fewer of them, so daily volume stays sensible (no 5 × 20)
+function maxSets(reps) {
+  return reps <= 12 ? 5 : reps <= 20 ? 4 : LADDER_RESET_SETS;
+}
+
+// cap: { reps, hint } or null. Reps stop at cap.reps; null once the target is maxed at maxSets(cap) × cap.
 function nextStep({ sets, repsPerSet }, cap) {
-  if (sets < MAX_SETS) return { sets: sets + 1, repsPerSet };
+  if (sets < maxSets(repsPerSet)) return { sets: sets + 1, repsPerSet };
   if (cap && repsPerSet >= cap.reps) return null;
   return { sets: LADDER_RESET_SETS, repsPerSet: Math.min(repsPerSet + repStep(repsPerSet), cap?.reps ?? Infinity) };
 }
@@ -1514,7 +1519,7 @@ function prevStep({ sets, repsPerSet }) {
   // Smallest rep count whose step up reaches this one, so − then + lands back here
   let reps = 1;
   while (reps + repStep(reps) < repsPerSet) reps++;
-  return { sets: MAX_SETS, repsPerSet: reps };
+  return { sets: maxSets(reps), repsPerSet: reps };
 }
 
 // Rep cap for the exercise's current variant, from its rank standard. Hint names the next harder
