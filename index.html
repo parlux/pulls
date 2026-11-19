@@ -333,6 +333,9 @@
   }
   .hist-kind.calf { color: var(--accent); border-color: var(--accent); }
   .hist-kind.mcgill { color: var(--green); border-color: var(--green); }
+  .day-tags { padding: 0 0 18px; margin-top: -8px; flex-wrap: wrap; }
+  .hist-daytags { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 0 10px; }
+  .hist-daytag { font-size: 10px; font-weight: 600; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
   .today-calf-title { margin-top: 28px; }
 
   /* ─── PROGRESS VIEW ─── */
@@ -649,6 +652,7 @@
         <div class="log-date" id="logDate"></div>
       </div>
     </div>
+    <div class="variant-pills day-tags" id="dayTagPills" aria-label="What kind of day today"></div>
     <div id="exerciseCards"></div>
 
     <div class="section-title today-calf-title"><span>CALF REHAB</span></div>
@@ -1475,6 +1479,7 @@ function renderAll(background) {
   if (!background || calfDaySetOn !== localDateKey(new Date())) renderCalfForm();
   renderCalfWeek();
   renderMcgill(!background);
+  renderDayTags();
   renderHistory();
   if (document.getElementById('viewProgress').classList.contains('active')) renderProgress();
 
@@ -2138,7 +2143,24 @@ function renderHistory() {
     ...(['all', 'workouts'].includes(historyFilter) ? workoutHistoryItems().map(x => ({ ...x, order: 0 })) : []),
     ...(['all', 'calf'].includes(historyFilter) ? calfHistoryItems().map(x => ({ ...x, order: 1 })) : []),
     ...(['all', 'mcgill'].includes(historyFilter) ? mcgillHistoryItems().map(x => ({ ...x, order: 2 })) : []),
-  ].sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order);
+  ];
+  // Days tagged (office, gym, ...) with nothing else logged still show, so skipped days have a reason
+  if (['all', 'workouts'].includes(historyFilter)) {
+    const have = new Set(items.map(x => x.date));
+    [...new Set(checkins.filter(c => c.habit.startsWith(DAY_TAG_PREFIX)).map(c => c.date))]
+      .filter(d => !have.has(d))
+      .forEach(date => items.push({ date, order: 3, html: `<div class="hist-item">${histHead(date, 'Day')}</div>` }));
+  }
+  items.sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order);
+  // The day's tags go under the first card of each day only
+  const seen = new Set();
+  items.forEach(x => {
+    const first = !seen.has(x.date);
+    seen.add(x.date);
+    const tags = first ? dayTagsOn(x.date) : [];
+    x.html = x.html.replace('<!--daytags-->', tags.length
+      ? `<div class="hist-daytags">${tags.map(t => `<span class="hist-daytag">${h(t)}</span>`).join('')}</div>` : '');
+  });
 
   const empty = { all: 'NO LOGS YET', workouts: 'NO WORKOUTS YET', calf: 'NO CALF LOGS YET', mcgill: 'NO MCGILL DAYS YET' }[historyFilter];
   document.getElementById('historyList').innerHTML = items.length
@@ -2150,7 +2172,7 @@ function histHead(date, kind) {
   return `<div class="hist-head">
       <span class="hist-date">${fmtDate(date)}</span>
       <span class="hist-dow"><span class="hist-kind${kind === 'Calf' ? ' calf' : kind === 'McGill' ? ' mcgill' : ''}">${kind}</span>${fmtDow(date)}</span>
-    </div>`;
+    </div><!--daytags-->`;
 }
 
 function workoutHistoryItems() {
@@ -3412,6 +3434,43 @@ function calfHistoryItems() {
       </div>
     </div>` };
   });
+}
+
+// ─── DAY TAGS ─────────────────────────────────────────────────────────────────
+// What kind of day it was (office, gym, skate, rest), any combo. Stored as checkins rows,
+// one per tag per day, with habit 'day:<Tag>'; the id comes from tag and date like McGill.
+const DAY_TAG_PREFIX = 'day:';
+const DAY_TAGS = ['Office', 'Gym', 'Skate', 'Rest / WFH'];
+
+const dayTagsOn = ds => DAY_TAGS.filter(t => checkins.some(c => c.habit === DAY_TAG_PREFIX + t && c.date === ds));
+
+function renderDayTags() {
+  const on = dayTagsOn(localDateKey(new Date()));
+  document.getElementById('dayTagPills').innerHTML = DAY_TAGS.map(t =>
+    `<button class="pill${on.includes(t) ? ' active' : ''}" aria-pressed="${on.includes(t)}" onclick="toggleDayTag('${esc(t)}')">${h(t)}</button>`
+  ).join('');
+}
+
+async function toggleDayTag(tag) {
+  const ds = localDateKey(new Date());
+  const habit = DAY_TAG_PREFIX + tag;
+  const entry = checkins.find(c => c.habit === habit && c.date === ds);
+  abortLoad();
+  if (entry) {
+    queueDelete('checkins', entry.id);
+    checkins = checkins.filter(c => c !== entry);
+  } else {
+    const id = await uuidFromString(`checkin:${habit}:${ds}`);
+    pendingDeletes = pendingDeletes.filter(d => !(d.table === 'checkins' && d.id === id));
+    savePendingDeletes();
+    const c = { id, habit, date: ds, note: '', timestamp: new Date().toISOString() };
+    markPending(c);
+    checkins = [c, ...checkins.filter(x => x.id !== id)];
+  }
+  saveTableCache('checkins');
+  pushPending();
+  renderDayTags();
+  renderHistory();
 }
 
 // ─── MCGILL BIG 3 ─────────────────────────────────────────────────────────────
