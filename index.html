@@ -335,6 +335,11 @@
   .hist-kind.mcgill { color: var(--green); border-color: var(--green); }
   .day-tags { padding: 0 0 18px; margin-top: -8px; flex-wrap: wrap; }
   .hist-daytags { display: flex; flex-wrap: wrap; gap: 4px; margin: -4px 0 10px; }
+  .hist-daytags .pill { padding: 3px 10px; font-size: 11px; }
+  .hist-daytag-edit { font-size: 10px; font-weight: 600; color: var(--muted); background: none; border: 1px dashed var(--border); border-radius: 999px; padding: 1px 8px; cursor: pointer; font-family: var(--font-body); }
+  .hist-daytag-edit:hover { color: var(--accent); border-color: var(--accent); }
+  .hist-tagday { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 11px; font-weight: 600; color: var(--muted); }
+  .hist-tagday input { background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-family: var(--font-body); font-size: 12px; color-scheme: dark; }
   .hist-daytag { font-size: 10px; font-weight: 600; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
   .today-calf-title { margin-top: 28px; }
 
@@ -740,6 +745,7 @@
       <span class="export-btns" id="historyExport"></span>
     </div>
     <div class="variant-pills hist-filter" id="historyFilter"></div>
+    <label class="hist-tagday">Tag a past day <input type="date" id="tagDayInput" onchange="editDayTags(this.value, true); this.value = ''"></label>
     <div class="history-list" id="historyList"></div>
   </div>
 </div>
@@ -2130,6 +2136,7 @@ function setHistoryFilter(f) {
 
 // Workouts, calf sessions and McGill days in one list, newest day first (in that order within a day)
 function renderHistory() {
+  document.getElementById('tagDayInput').max = localDateKey(new Date());
   document.getElementById('historyFilter').innerHTML = HISTORY_FILTERS.map(([key, label]) =>
     `<button class="pill${key === historyFilter ? ' active' : ''}" onclick="setHistoryFilter('${key}')">${label}</button>`).join('');
   document.getElementById('historyExport').innerHTML = {
@@ -2147,7 +2154,7 @@ function renderHistory() {
   // Days tagged (office, gym, ...) with nothing else logged still show, so skipped days have a reason
   if (['all', 'workouts'].includes(historyFilter)) {
     const have = new Set(items.map(x => x.date));
-    [...new Set(checkins.filter(c => c.habit.startsWith(DAY_TAG_PREFIX)).map(c => c.date))]
+    [...new Set([...checkins.filter(c => c.habit.startsWith(DAY_TAG_PREFIX)).map(c => c.date), dayTagEditing].filter(Boolean))]
       .filter(d => !have.has(d))
       .forEach(date => items.push({ date, order: 3, html: `<div class="hist-item">${histHead(date, 'Day')}</div>` }));
   }
@@ -2157,9 +2164,7 @@ function renderHistory() {
   items.forEach(x => {
     const first = !seen.has(x.date);
     seen.add(x.date);
-    const tags = first ? dayTagsOn(x.date) : [];
-    x.html = x.html.replace('<!--daytags-->', tags.length
-      ? `<div class="hist-daytags">${tags.map(t => `<span class="hist-daytag">${h(t)}</span>`).join('')}</div>` : '');
+    x.html = x.html.replace('<!--daytags-->', first ? histDayTags(x.date) : '');
   });
 
   const empty = { all: 'NO LOGS YET', workouts: 'NO WORKOUTS YET', calf: 'NO CALF LOGS YET', mcgill: 'NO MCGILL DAYS YET' }[historyFilter];
@@ -3444,6 +3449,26 @@ const DAY_TAGS = ['Office', 'Gym', 'Skate', 'Rest / WFH'];
 
 const dayTagsOn = ds => DAY_TAGS.filter(t => checkins.some(c => c.habit === DAY_TAG_PREFIX + t && c.date === ds));
 
+let dayTagEditing = null; // date whose tags are open for editing in History
+
+// The tag chips under a day's first History card, or the toggle pills while editing it
+function histDayTags(ds) {
+  const on = dayTagsOn(ds);
+  if (ds === dayTagEditing) return `<div class="hist-daytags">${DAY_TAGS.map(t =>
+    `<button class="pill${on.includes(t) ? ' active' : ''}" aria-pressed="${on.includes(t)}" onclick="toggleDayTag('${esc(t)}', '${ds}')">${h(t)}</button>`
+  ).join('')}<button class="pill" onclick="editDayTags(null)">Done</button></div>`;
+  return `<div class="hist-daytags">${on.map(t => `<span class="hist-daytag">${h(t)}</span>`).join('')}<button class="hist-daytag-edit" onclick="editDayTags('${ds}')">${on.length ? 'Edit' : '+ Tag day'}</button></div>`;
+}
+
+function editDayTags(ds, picked) {
+  if (ds && ds > localDateKey(new Date())) return;
+  dayTagEditing = ds || null;
+  // A date picked from the box might be hidden by the current filter
+  if (picked && !['all', 'workouts'].includes(historyFilter)) historyFilter = 'all';
+  renderHistory();
+  if (ds) document.querySelector('.hist-daytags .pill')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 function renderDayTags() {
   const on = dayTagsOn(localDateKey(new Date()));
   document.getElementById('dayTagPills').innerHTML = DAY_TAGS.map(t =>
@@ -3451,8 +3476,7 @@ function renderDayTags() {
   ).join('');
 }
 
-async function toggleDayTag(tag) {
-  const ds = localDateKey(new Date());
+async function toggleDayTag(tag, ds = localDateKey(new Date())) {
   const habit = DAY_TAG_PREFIX + tag;
   const entry = checkins.find(c => c.habit === habit && c.date === ds);
   abortLoad();
