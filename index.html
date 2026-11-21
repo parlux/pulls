@@ -3442,10 +3442,10 @@ function calfHistoryItems() {
 }
 
 // ─── DAY TAGS ─────────────────────────────────────────────────────────────────
-// What kind of day it was (office, gym, skate, rest), any combo. Stored as checkins rows,
+// What kind of day it was (office, gym, skate, dig/MTB, rest), any combo. Stored as checkins rows,
 // one per tag per day, with habit 'day:<Tag>'; the id comes from tag and date like McGill.
 const DAY_TAG_PREFIX = 'day:';
-const DAY_TAGS = ['Office', 'Gym', 'Skate', 'Rest / WFH'];
+const DAY_TAGS = ['Office', 'Gym', 'Skate', 'Dig / MTB', 'Rest / WFH'];
 
 const dayTagsOn = ds => DAY_TAGS.filter(t => checkins.some(c => c.habit === DAY_TAG_PREFIX + t && c.date === ds));
 
