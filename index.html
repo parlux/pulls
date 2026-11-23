@@ -837,6 +837,8 @@ const CALF_HEEL_CAP = { reps: 10, hint: 'Lighten the pull' };
 const CALF_BLOCK3_START = '2026-11-23';
 // Rest between sets: 90 s for the loaded single-leg work, 60 s for the lighter double-leg and toe work
 const CALF_REST_LOADED = 90;
+// Starting seat height for sit to stands until one is logged (a standard chair)
+const CALF_SEAT_DEFAULT_CM = 45;
 
 function calfBlock(dateStr) {
   return dateStr >= CALF_BLOCK3_START ? 3 : dateStr >= CALF_BLOCK2_START ? 2 : 1;
@@ -2640,7 +2642,7 @@ function calfPlan(dateStr) {
       sides: [side('seatedSingleLeft', 'L', 3, 10)] },
     { id: 'weightShift', title: 'Double-leg calf raise, weight shifts', sub: 'Standing', kind: 'reps', rest: CALF_REST_SECS,
       sides: [{ key: 'weightShift', short: '', label: '', sets: 3, target: 10 }] },
-    { id: 'sitToStand', title: 'Single-leg sit to stand', sub: 'Each side', kind: 'reps', rest: CALF_REST_LOADED,
+    { id: 'sitToStand', title: 'Single-leg sit to stand', sub: 'Each side', kind: 'reps', height: true, rest: CALF_REST_LOADED,
       sides: [side('sitToStandLeft', 'L', 3, 8), side('sitToStandRight', 'R', 3, 8)] },
     { id: 'toePushup', title: 'Banded big toe push-ups', sub: 'Band', kind: 'reps', rest: CALF_REST_SECS,
       sides: [side('toePushupLeft', 'L', 3, 10)] },
@@ -2738,6 +2740,8 @@ function calfDraft(ex, side) {
   const prop = calfValueProp(ex);
   const draft = { [prop]: side.target ?? prev?.[prop] ?? lastCalfSetValue(side.key, prop) ?? (prop === 'seconds' ? 20 : 12) };
   if (ex.kind === 'repsWeight') draft.weight = prev?.weight ?? lastCalfSetValue(side.key, 'weight') ?? 10;
+  // Seat height carries over from either side, since both usually use the same seat
+  if (ex.height) draft.height = prev?.height ?? ex.sides.map(s => lastCalfSetValue(s.key, 'height')).find(v => v != null) ?? CALF_SEAT_DEFAULT_CM;
   if (side.level) draft[side.level.prop] = prev?.[side.level.prop] || lastCalfLevel(side);
   return draft;
 }
@@ -2796,6 +2800,7 @@ function calfCardHtml(ex) {
     let info = `<b>${sets.length}</b>/${s.sets}`;
     if (ex.kind === 'seconds' && sets.length) info += ` · best ${Math.max(...sets.map(x => x.seconds))}s`;
     if (ex.kind === 'repsWeight' && last) info += ` · ${last.weight} kg`;
+    if (ex.height && last?.height != null) info += ` · ${last.height} cm`;
     if (s.level && last?.[s.level.prop]) info += ` · ${h(last[s.level.prop])}`;
     return `<span class="calf-side"><b>${s.short}</b><span class="calf-bars">${bars}</span><span class="calf-side-info">${info}</span></span>`;
   };
@@ -2889,7 +2894,7 @@ function editCalfSet(idx) {
 
 function stepCalfDraft(prop, d) {
   const { ex } = calfSheetCtx();
-  const v = Math.max(prop === 'weight' ? 0 : 1, (Number(calfSheet.draft[prop]) || 0) + d);
+  const v = Math.max(prop === 'weight' || prop === 'height' ? 0 : 1, (Number(calfSheet.draft[prop]) || 0) + d);
   setCalfDraft(prop, prop === 'seconds' && ex.cap ? Math.min(ex.cap, v) : v);
 }
 
@@ -2928,6 +2933,12 @@ function renderCalfSheet() {
       <button onclick="stepCalfDraft('weight',-0.5)" aria-label="Less weight">−</button>
       <button onclick="stepCalfDraft('weight',0.5)" aria-label="More weight">+</button>
     </div>`;
+  const height = !ex.height ? '' : `
+    <div class="sheet-target">
+      <span class="grow">Seat height <b>${draft.height} cm</b></span>
+      <button onclick="stepCalfDraft('height',-1)" aria-label="Lower seat">−</button>
+      <button onclick="stepCalfDraft('height',1)" aria-label="Higher seat">+</button>
+    </div>`;
   const level = !side.level ? '' : `
     <div>
       <span class="input-lbl">${h(side.level.label)}</span>
@@ -2939,6 +2950,7 @@ function renderCalfSheet() {
   const fmtSet = s => [
     s[prop] != null ? s[prop] + (prop === 'seconds' ? 's' : '') : '',
     s.weight != null ? `${s.weight} kg` : '',
+    s.height != null ? `${s.height} cm` : '',
     side.level ? s[side.level.prop] : '',
   ].filter(Boolean).join(' · ');
   const chips = !sets.length ? '' : `<div class="calf-chips">${sets.map((s, i) =>
@@ -2965,7 +2977,7 @@ function renderCalfSheet() {
     </div>
     <div class="quick-reps">${quick.map(n =>
       `<button class="${n === val ? 'active' : ''}" onclick="setCalfDraft('${prop}',${n})">${n}</button>`).join('')}</div>
-    ${timer}${weight}${level}${chips}<div class="calf-rest" id="calfRestSheet"></div>${action}`;
+    ${timer}${weight}${height}${level}${chips}<div class="calf-rest" id="calfRestSheet"></div>${action}`;
   const targetEl = document.getElementById('calfSheetTarget');
   // The ladder only applies to the left heel raise, and is only changed from today
   if (side.key === CALF_BUMP_KEY && calfDay === localDateKey(new Date())) {
@@ -2985,6 +2997,7 @@ function logCalfSet() {
   const d = calfSheet.draft;
   const set = { [prop]: Number(d[prop]) };
   if (ex.kind === 'repsWeight') set.weight = Number(d.weight);
+  if (ex.height) set.height = Number(d.height);
   if (side.level) set[side.level.prop] = d[side.level.prop] || null;
 
   const sets = calfSetsState[side.key];
@@ -3503,7 +3516,8 @@ function renderCalfSetDetail(l) {
   if (ws.length) lines.push(`Weight-shift calf raise — ${ws.map(s => s.reps).join(', ')}`);
   const stL = l.sitToStandLeft || [], stR = l.sitToStandRight || [];
   if (stL.length || stR.length) {
-    const lStr = stL.map(s => s.reps).join(', '), rStr = stR.map(s => s.reps).join(', ');
+    const fmt = arr => arr.map(s => s.height != null ? `${s.reps}@${s.height}cm` : `${s.reps}`).join(', ');
+    const lStr = fmt(stL), rStr = fmt(stR);
     lines.push(`Sit to stand${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
   }
   const tp = l.toePushupLeft || [];
@@ -3785,7 +3799,7 @@ function exportMcgillCSV() {
 }
 
 function exportCalfCSV() {
-  const header = ['Date', 'DayType', 'Exercise', 'Side', 'Set', 'Reps', 'Seconds', 'Weight_kg', 'Assist', 'Grip', 'Pull', 'PriorActivity', 'Soreness'];
+  const header = ['Date', 'DayType', 'Exercise', 'Side', 'Set', 'Reps', 'Seconds', 'Weight_kg', 'Height_cm', 'Assist', 'Grip', 'Pull', 'PriorActivity', 'Soreness'];
   const rows = [header];
 
   const pushRows = (l, arr, exLabel, side, repsKey, secondsKey, weightKey) => {
@@ -3795,6 +3809,7 @@ function exportCalfCSV() {
         repsKey ? (s[repsKey] ?? '') : '',
         secondsKey ? (s[secondsKey] ?? '') : '',
         weightKey ? (s[weightKey] ?? '') : '',
+        s.height ?? '',
         s.assist || '',
         s.grip || '',
         s.pull || '',

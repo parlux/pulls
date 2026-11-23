@@ -10,16 +10,16 @@ New physio program, done **every day** (no A/B split, Sundays included). The day
 |---|---|---|
 | Seated single-leg calf raise (dumbbell on knee) | 3 × 10 | Left only — reps + weight per set |
 | Standing double-leg calf raise, weight shifts | 3 × 10 | Both legs together — reps per set |
-| Single-leg sit to stand | 3 × 8 each side | Left and Right — reps per set |
+| Single-leg sit to stand | 3 × 8 each side | Left and Right — reps + seat height (cm) per set |
 | Banded big toe push-ups | 3 × 10 | Left only — reps per set |
 
-Nothing else is logged per set (no assist / pull / band levels). The Block 2 heel-raise ladder no longer applies.
+Nothing else is logged per set (no assist / pull / band levels). Seat height starts at 45 cm and carries over from the last sit-to-stand set. The Block 2 heel-raise ladder no longer applies.
 
 Rest timer: 90 s after seated single-leg raises and sit to stands, 60 s after weight shifts and toe push-ups. Taken from the ACSM resistance-training guidance (1–2 min for moderate-load sets of about 8–12; under 90 s for lighter endurance work), shortened slightly because this is daily, submaximal rehab work rather than training to failure. Tap +15s on the timer when a set needs longer.
 
 Progress → Calf charts the heaviest left seated single-leg set per day (missed days shown as crosses). The Block 2 iso-hold chart stays below it as history.
 
-Columns (create them with `supabase/calf_block3.sql`): `seated_single_left` (`{reps, weight}`), `weight_shift`, `sit_to_stand_left`, `sit_to_stand_right`, `toe_pushup_left` (`{reps}`).
+Columns (create them with `supabase/calf_block3.sql`): `seated_single_left` (`{reps, weight}`), `weight_shift`, `sit_to_stand_left`, `sit_to_stand_right` (`{reps, height}`, height in cm), `toe_pushup_left` (`{reps}`).
 
 ## Program — Block 2 (2026-10-05 → 2026-11-22)
 
