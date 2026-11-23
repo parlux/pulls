@@ -815,7 +815,7 @@ const LADDER_RESET_SETS = 3;
 const BUMP_NEED = { day: 7, session: 5 };
 
 const CALF_SCHEDULE = ['Off', 'A', 'A', 'B', 'A', 'A', 'B']; // Date.getDay() index, Sun..Sat
-const CALF_DAYTYPE_LABEL = { A: 'A-day', B: 'B-day', Off: 'Off' };
+const CALF_DAYTYPE_LABEL = { A: 'A-day', B: 'B-day', D: 'Daily', Off: 'Off' };
 const ASSIST_LEVELS = ['Heavy', 'Moderate', 'Light', 'Barely touching'];
 const ASSIST_VALUE = { Heavy: 1, Moderate: 2, Light: 3, 'Barely touching': 4 };
 
@@ -833,8 +833,13 @@ const CALF_BUMP_NEED = { 'A-day': 4 };
 // Rehab rep cap: past this the heel raise gets harder by lightening the pull, not more reps
 const CALF_HEEL_CAP = { reps: 10, hint: 'Lighten the pull' };
 
+// Block 3 (physio program from 2026-11-23): four exercises every day, no A/B split
+const CALF_BLOCK3_START = '2026-11-23';
+// Rest between sets: 90 s for the loaded single-leg work, 60 s for the lighter double-leg and toe work
+const CALF_REST_LOADED = 90;
+
 function calfBlock(dateStr) {
-  return dateStr >= CALF_BLOCK2_START ? 2 : 1;
+  return dateStr >= CALF_BLOCK3_START ? 3 : dateStr >= CALF_BLOCK2_START ? 2 : 1;
 }
 
 function usesPull(dateStr) {
@@ -842,6 +847,7 @@ function usesPull(dateStr) {
 }
 
 function calfDayType(dateStr) {
+  if (calfBlock(dateStr) === 3) return 'D';
   return CALF_SCHEDULE[new Date(dateStr + 'T12:00:00').getDay()];
 }
 
@@ -879,7 +885,7 @@ let logs = [];
 let charts = {};
 let chartRange = '1m';
 let progressEx = 'chinup';
-const CALF_PROGRESS_PILL = { key: 'calf', label: 'Calf hold', color: '#5b8def' };
+const CALF_PROGRESS_PILL = { key: 'calf', label: 'Calf', color: '#5b8def' };
 let historyFilter = 'all'; // 'all' | 'workouts' | 'calf' | 'mcgill'
 let calfLogs = [];
 let targets = []; // { id, exercise, sets, reps, effectiveDate, timestamp }, newest first
@@ -1066,6 +1072,11 @@ function normalizeCalfRecord(r) {
     assistAvg: r.assist_avg ?? null,
     priorActivity: r.prior_activity || '',
     soreness: r.soreness || '',
+    seatedSingleLeft: setsIn(r.seated_single_left),
+    weightShift:      setsIn(r.weight_shift),
+    sitToStandLeft:   setsIn(r.sit_to_stand_left),
+    sitToStandRight:  setsIn(r.sit_to_stand_right),
+    toePushupLeft:    setsIn(r.toe_pushup_left),
     heelRaiseLeft:   setsIn(r.heel_raise_left),
     heelRaiseRight:  setsIn(r.heel_raise_right),
     bigToeLeft:      setsIn(r.big_toe_left),
@@ -1088,6 +1099,11 @@ function buildCalfFields(entry) {
     assist_avg: numOrNull(entry.assistAvg),
     prior_activity: entry.priorActivity || '',
     soreness: entry.soreness || '',
+    seated_single_left: setsOrNull(entry.seatedSingleLeft),
+    weight_shift:       setsOrNull(entry.weightShift),
+    sit_to_stand_left:  setsOrNull(entry.sitToStandLeft),
+    sit_to_stand_right: setsOrNull(entry.sitToStandRight),
+    toe_pushup_left:    setsOrNull(entry.toePushupLeft),
     heel_raise_left:   setsOrNull(entry.heelRaiseLeft),
     heel_raise_right:  setsOrNull(entry.heelRaiseRight),
     big_toe_left:      setsOrNull(entry.bigToeLeft),
@@ -2414,14 +2430,16 @@ const variantBandsPlugin = {
 function renderFocus() {
   Object.values(charts).forEach(c => c && c.destroy());
   charts = {};
-  if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
+  Object.keys(calfCharts).forEach(k => { calfCharts[k].destroy(); delete calfCharts[k]; });
 
   // The calf iso hold chart has its own fixed A-day axis, so the range strip doesn't apply
   const isCalf = progressEx === CALF_PROGRESS_PILL.key;
   document.getElementById('rangeStrip').style.display = isCalf ? 'none' : '';
   if (isCalf) {
     document.getElementById('progressBody').innerHTML = `
-      <div class="focus-head"><div class="focus-lbl">Iso hold · best per A-day</div></div>
+      <div class="focus-head"><div class="focus-lbl">Seated single-leg raise · top weight per day (L)</div></div>
+      <div class="chart-block" id="calfSeatedChartBlock"></div>
+      <div class="focus-head"><div class="focus-lbl">Iso hold · best per A-day (Block 2)</div></div>
       <div class="chart-block" id="calfChartBlock"></div>`;
     renderCalfChart();
     return;
@@ -2605,7 +2623,8 @@ function renderFocus() {
 
 // ─── CALF RENDER ──────────────────────────────────────────────────────────────
 const CALF_SET_KEYS = ['heelRaiseLeft', 'heelRaiseRight', 'bigToeLeft', 'bigToeRight', 'seatedCalfRaise',
-  'isoHoldLeft', 'isoHoldRight', 'bentKneeLeft', 'bentKneeRight'];
+  'isoHoldLeft', 'isoHoldRight', 'bentKneeLeft', 'bentKneeRight',
+  'seatedSingleLeft', 'weightShift', 'sitToStandLeft', 'sitToStandRight', 'toePushupLeft'];
 const CALF_REST_SECS = 60;
 const PRIOR_ACTIVITY_OPTIONS = ['Skated', 'Rode', 'Long walk', 'Nothing'];
 
@@ -2616,6 +2635,16 @@ function calfPlan(dateStr) {
   const scale = (prop, label, levels) => ({ prop, label, levels });
   const assist = scale('assist', 'Right-leg assist', ASSIST_LEVELS);
 
+  if (block === 3) return [
+    { id: 'seatedSingle', title: 'Seated single-leg calf raise', sub: 'Dumbbell on knee', kind: 'repsWeight', rest: CALF_REST_LOADED,
+      sides: [side('seatedSingleLeft', 'L', 3, 10)] },
+    { id: 'weightShift', title: 'Double-leg calf raise, weight shifts', sub: 'Standing', kind: 'reps', rest: CALF_REST_SECS,
+      sides: [{ key: 'weightShift', short: '', label: '', sets: 3, target: 10 }] },
+    { id: 'sitToStand', title: 'Single-leg sit to stand', sub: 'Each side', kind: 'reps', rest: CALF_REST_LOADED,
+      sides: [side('sitToStandLeft', 'L', 3, 8), side('sitToStandRight', 'R', 3, 8)] },
+    { id: 'toePushup', title: 'Banded big toe push-ups', sub: 'Band', kind: 'reps', rest: CALF_REST_SECS,
+      sides: [side('toePushupLeft', 'L', 3, 10)] },
+  ];
   if (type === 'A' && block === 1) return [
     { id: 'heelRaise', title: 'Two-up, one-down heel raise', sub: 'Right-leg assist', kind: 'reps',
       sides: [side('heelRaiseLeft', 'L', 3, 6, assist), side('heelRaiseRight', 'R', 2, 6)] },
@@ -2745,7 +2774,7 @@ function renderCalfDay() {
     d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '').toUpperCase();
   const tag = document.getElementById('calfDayType');
   tag.textContent = CALF_DAYTYPE_LABEL[type];
-  tag.className = 'calf-tag ' + (type === 'A' ? 'a-day' : type === 'B' ? 'b-day' : '');
+  tag.className = 'calf-tag ' + (type === 'A' || type === 'D' ? 'a-day' : type === 'B' ? 'b-day' : '');
   document.getElementById('calfBlockTag').textContent = `Block ${calfBlock(calfDay)}`;
   document.getElementById('calfNextDay').disabled = calfDay >= localDateKey(new Date());
 
@@ -3277,7 +3306,7 @@ function renderCalfWeek() {
       (type === 'B' ? ' b-day' : '') +
       (isLogged ? ' trained' : isFuture ? ' future' : (type !== 'Off' && ds < todayKey ? ' missed' : '')) +
       (ds === calfDay ? ' selected' : '');
-    dot.textContent = type === 'Off' ? '' : type;
+    dot.textContent = type === 'Off' || type === 'D' ? '' : type;
     const lbl = document.createElement('div'); lbl.className = 'week-dot-lbl';
     lbl.textContent = labels[i];
     wrap.appendChild(dot); wrap.appendChild(lbl); strip.appendChild(wrap);
@@ -3285,6 +3314,7 @@ function renderCalfWeek() {
 }
 
 function renderCalfChart() {
+  renderCalfSeatedChart();
   if (calfCharts.trend) { calfCharts.trend.destroy(); delete calfCharts.trend; }
 
   const isoEntries = calfLogs
@@ -3293,7 +3323,7 @@ function renderCalfChart() {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const block = document.getElementById('calfChartBlock');
-  if (!block) return; // only on Progress with the Calf hold pill selected
+  if (!block) return; // only on Progress with the Calf pill selected
   if (isoEntries.length === 0) {
     block.innerHTML = '<div class="chart-empty">No iso hold entries yet</div>';
     return;
@@ -3376,6 +3406,64 @@ function renderCalfChart() {
   });
 }
 
+// Block 3 benchmark: heaviest left seated single-leg set each day, missed days shown as crosses
+function renderCalfSeatedChart() {
+  if (calfCharts.seated) { calfCharts.seated.destroy(); delete calfCharts.seated; }
+  const block = document.getElementById('calfSeatedChartBlock');
+  if (!block) return;
+  const byDate = {};
+  calfLogs.forEach(l => { if ((l.seatedSingleLeft || []).length) byDate[l.date] = l.seatedSingleLeft; });
+  const dates = Object.keys(byDate).sort();
+  if (!dates.length) {
+    block.innerHTML = '<div class="chart-empty">No seated single-leg raise entries yet</div>';
+    return;
+  }
+  block.innerHTML = '<div class="chart-wrap"><canvas id="calfSeatedChart"></canvas></div>';
+
+  const pts = [];
+  for (let d = new Date(dates[0] + 'T12:00:00'), today = localDateKey(new Date()); localDateKey(d) <= today; d = addDays(d, 1)) {
+    const ds = localDateKey(d), sets = byDate[ds];
+    // Today only shows once something's logged
+    if (!sets && ds === today) continue;
+    pts.push({ date: ds, sets, top: sets ? Math.max(...sets.map(s => s.weight || 0)) : null });
+  }
+  const color = '#5b8def';
+  calfCharts.seated = new Chart(document.getElementById('calfSeatedChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: pts.map(p => fmtDate(p.date)),
+      datasets: [{
+        label: 'Left', data: pts.map(p => p.top), spanGaps: false,
+        borderColor: color, backgroundColor: color + '20',
+        pointStyle: pts.map(p => p.sets ? 'circle' : 'crossRot'),
+        pointBackgroundColor: pts.map(p => p.sets ? color : VARIANT_MISSED_COLOR),
+        pointRadius: 4, pointHoverRadius: 6, borderWidth: 2, fill: false, tension: 0.3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#141416', borderColor: '#2a2a30', borderWidth: 1,
+          titleColor: '#e8e6e0', bodyColor: '#9b98a0',
+          callbacks: {
+            label: item => {
+              const p = pts[item.dataIndex];
+              return p.sets ? p.sets.map(s => `${s.reps}×${s.weight}kg`).join(', ') : 'Not logged';
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#6b6870', font: { size: 10 }, maxTicksLimit: 7 }, grid: { color: '#1c1c20' } },
+        y: { beginAtZero: true, ticks: { color: '#6b6870', font: { size: 10 }, callback: v => v + ' kg' }, grid: { color: '#1c1c20' } },
+      },
+    },
+  });
+}
+
 const fmtHold = s => (s.pull || s.grip) ? `${s.seconds}s (${s.pull || s.grip})` : `${s.seconds}s`;
 
 // Most common left heel-raise pull level, for the history summary
@@ -3409,6 +3497,17 @@ function renderCalfSetDetail(l) {
     const lStr = fmt(ihL), rStr = fmt(ihR);
     lines.push(`Iso hold${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
   }
+  const ss = l.seatedSingleLeft || [];
+  if (ss.length) lines.push(`Seated single-leg calf raise — L: ${ss.map(s => `${s.reps}×${s.weight}kg`).join(', ')}`);
+  const ws = l.weightShift || [];
+  if (ws.length) lines.push(`Weight-shift calf raise — ${ws.map(s => s.reps).join(', ')}`);
+  const stL = l.sitToStandLeft || [], stR = l.sitToStandRight || [];
+  if (stL.length || stR.length) {
+    const lStr = stL.map(s => s.reps).join(', '), rStr = stR.map(s => s.reps).join(', ');
+    lines.push(`Sit to stand${lStr ? ` — L: ${lStr}` : ''}${rStr ? `${lStr ? ' · ' : ' — '}R: ${rStr}` : ''}`);
+  }
+  const tp = l.toePushupLeft || [];
+  if (tp.length) lines.push(`Big toe push-ups — L: ${tp.map(s => s.reps).join(', ')}`);
   const bkL = l.bentKneeLeft || [], bkR = l.bentKneeRight || [];
   if (bkL.length || bkR.length) {
     const fmt = arr => arr.map(s => `${s.reps}×${s.weight}kg`).join(', ');
@@ -3715,6 +3814,11 @@ function exportCalfCSV() {
     pushRows(l, l.isoHoldRight,     'Iso hold',          'Right', null, 'seconds', null);
     pushRows(l, l.bentKneeLeft,     'Bent-knee heel raise', 'Left',  'reps', null, 'weight');
     pushRows(l, l.bentKneeRight,    'Bent-knee heel raise', 'Right', 'reps', null, 'weight');
+    pushRows(l, l.seatedSingleLeft, 'Seated single-leg calf raise', 'Left', 'reps', null, 'weight');
+    pushRows(l, l.weightShift,      'Weight-shift calf raise', '',     'reps', null, null);
+    pushRows(l, l.sitToStandLeft,   'Single-leg sit to stand', 'Left',  'reps', null, null);
+    pushRows(l, l.sitToStandRight,  'Single-leg sit to stand', 'Right', 'reps', null, null);
+    pushRows(l, l.toePushupLeft,    'Banded big toe push-ups', 'Left',  'reps', null, null);
   });
 
   const csv = rows.map(row => row.map(csvField).join(',')).join('\r\n');
