@@ -857,10 +857,13 @@ const EXERCISES = [
   { key: 'chinup', label: 'Chin Ups',  color: '#5b8def', variants: ['Band-Assisted', 'Negative', 'Full', 'Weighted'] },
   { key: 'pushup', label: 'Push Ups',  color: '#e8a020', variants: ['Incline', 'Knee', 'Full', 'Decline', 'Weighted'] },
   { key: 'deadbug', label: 'Deadbugs', color: '#3ab06a', variants: ['Bent-Knee', 'Straight-Leg', 'Iso Hold', 'Weighted'] },
-  { key: 'burpee', label: 'Burpees',   color: '#d63a2f', variants: ['Step', 'No Jump', 'No Pushup', 'Full'] },
+  // paused: hidden from Today, Progress and the rank; past logs still load, sync and show in History
+  { key: 'burpee', label: 'Burpees',   color: '#d63a2f', paused: true, variants: ['Step', 'No Jump', 'No Pushup', 'Full'] },
   { key: 'splitsquat', label: 'Split Squats', color: '#9b6ef0', variants: ['Assisted', 'Bodyweight', 'Rear-Foot Elevated', 'Weighted'] },
   { key: 'stepup', label: 'Step Ups',  color: '#2fb5b5', variants: ['Assisted', 'Milk Crate', 'Bench', 'Weighted'] },
 ];
+// The exercises currently in the program (EXERCISES also keeps paused ones so their data is kept)
+const ACTIVE_EXERCISES = EXERCISES.filter(ex => !ex.paused);
 
 // ─── ATHLETICISM RANK ─────────────────────────────────────────────────────────
 // Per variant: [lo, hi, capReps] — a best set scores lo + (hi-lo) × min(reps, cap)/cap.
@@ -1663,7 +1666,7 @@ function lastSessionTarget(key) {
 // Run only after a full fetch so targets made on other devices are already known.
 function seedMissingTargets() {
   const today = localDateKey(new Date());
-  EXERCISES.forEach(({ key }) => {
+  ACTIVE_EXERCISES.forEach(({ key }) => {
     if (storedTarget(key, today)) return;
     const t = lastSessionTarget(key);
     if (t) saveTarget(key, t, today);
@@ -1705,7 +1708,7 @@ function renderCards() {
   const container = document.getElementById('exerciseCards');
   let totalDone = 0, totalTarget = 0;
 
-  const rows = EXERCISES.map(ex => {
+  const rows = ACTIVE_EXERCISES.map(ex => {
     const done = todaySetsFor(ex.key);
     const target = getTarget(ex.key);
     const rest = restRemaining(ex.key);
@@ -2312,7 +2315,7 @@ function rankScale(score, tier) {
 
 function renderRankCard() {
   const el = document.getElementById('rankCard');
-  const scores = EXERCISES.map(ex => ({ ex, s: exerciseScore(ex) }));
+  const scores = ACTIVE_EXERCISES.map(ex => ({ ex, s: exerciseScore(ex) }));
   const ranked = scores.filter(x => x.s);
   if (!ranked.length) {
     el.innerHTML = `<div class="rank-card"><div class="focus-lbl">Athleticism</div><div class="rank-empty">Log a set to get ranked</div></div>`;
@@ -2347,7 +2350,7 @@ function renderProgress() {
 }
 
 function renderExPills() {
-  document.getElementById('exPills').innerHTML = [...EXERCISES, CALF_PROGRESS_PILL].map(ex => `
+  document.getElementById('exPills').innerHTML = [...ACTIVE_EXERCISES, CALF_PROGRESS_PILL].map(ex => `
     <button class="pill${ex.key === progressEx ? ' active' : ''}" onclick="setProgressEx('${ex.key}')">
       <span class="dot" style="background:${ex.color}"></span>${ex.label}
     </button>`).join('');
@@ -2447,7 +2450,7 @@ function renderFocus() {
     return;
   }
 
-  const ex = EXERCISES.find(e => e.key === progressEx) || EXERCISES[0];
+  const ex = ACTIVE_EXERCISES.find(e => e.key === progressEx) || ACTIVE_EXERCISES[0];
   const body = document.getElementById('progressBody');
 
   const todayDate = new Date();
